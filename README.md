@@ -1,0 +1,1 @@
+# waste_collection_app

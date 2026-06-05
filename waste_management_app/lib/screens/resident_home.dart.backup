@@ -1,0 +1,278 @@
+import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import '../widgets/map_widget.dart';
+import 'segregation_guide.dart';
+
+class ResidentHome extends StatefulWidget {
+  const ResidentHome({super.key});
+
+  @override
+  State<ResidentHome> createState() => _ResidentHomeState();
+}
+
+class _ResidentHomeState extends State<ResidentHome> {
+  int _currentIndex = 0;
+  final _firestore = FirebaseFirestore.instance;
+
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/');
+    }
+  }
+
+  // DEBUG: Add dummy schedule data
+  Future<void> _addDummyData() async {
+    try {
+      final batch = _firestore.batch();
+
+      // Sample schedule items
+      final schedules = [
+        {
+          'dayOfWeek': 'Monday',
+          'wasteType': 'General Waste',
+          'areaName': 'Colombo 3',
+          'time': '08:00 AM',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'dayOfWeek': 'Tuesday',
+          'wasteType': 'Recyclable',
+          'areaName': 'Colombo 5',
+          'time': '09:00 AM',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+        {
+          'dayOfWeek': 'Wednesday',
+          'wasteType': 'General Waste',
+          'areaName': 'Colombo 7',
+          'time': '10:00 AM',
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+      ];
+
+      for (var schedule in schedules) {
+        final docRef = _firestore.collection('schedules').doc();
+        batch.set(docRef, schedule);
+      }
+
+      await batch.commit();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ 3 dummy schedules added!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error adding data: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Resident Portal'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.info_outline),
+            tooltip: 'Segregation Guide',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SegregationGuide(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: _logout,
+          ),
+        ],
+      ),
+      body: _currentIndex == 0 ? _buildScheduleTab() : const MapWidget(),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today),
+            label: 'Schedule',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.map),
+            label: 'Live Map',
+          ),
+        ],
+      ),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton.extended(
+              onPressed: _addDummyData,
+              backgroundColor: Colors.orange,
+              icon: const Icon(Icons.bug_report),
+              label: const Text('DEBUG: Add Dummy Data'),
+            )
+          : null,
+    );
+  }
+
+  Widget _buildScheduleTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _firestore.collection('schedules').snapshots(),
+      builder: (context, snapshot) {
+        // Loading state
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        // Error state
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 60, color: Colors.red),
+                const SizedBox(height: 16),
+                Text(
+                  'Error loading schedules',
+                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  snapshot.error.toString(),
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Empty state
+        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.event_busy, size: 80, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'No schedules available',
+                  style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Tap the DEBUG button to add sample data',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final schedules = snapshot.data!.docs;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: schedules.length,
+          itemBuilder: (context, index) {
+            final schedule = schedules[index].data() as Map<String, dynamic>;
+            final wasteType = schedule['wasteType'] ?? 'Unknown';
+            final dayOfWeek = schedule['dayOfWeek'] ?? 'Unknown';
+            final areaName = schedule['areaName'] ?? 'Unknown';
+            final time = schedule['time'] ?? '';
+
+            // Determine icon and color based on waste type
+            IconData wasteIcon;
+            Color wasteColor;
+
+            if (wasteType.toLowerCase().contains('recycl')) {
+              wasteIcon = Icons.recycling;
+              wasteColor = Colors.green;
+            } else {
+              wasteIcon = Icons.delete_outline;
+              wasteColor = Colors.grey;
+            }
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: CircleAvatar(
+                  backgroundColor: wasteColor.withOpacity(0.2),
+                  child: Icon(wasteIcon, color: wasteColor, size: 28),
+                ),
+                title: Text(
+                  wasteType,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                subtitle: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            dayOfWeek,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          if (time.isNotEmpty) ...[
+                            const SizedBox(width: 16),
+                            const Icon(Icons.access_time,
+                                size: 16, color: Colors.grey),
+                            const SizedBox(width: 4),
+                            Text(time, style: const TextStyle(fontSize: 14)),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          const Icon(Icons.location_on,
+                              size: 16, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          Text(
+                            areaName,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+}

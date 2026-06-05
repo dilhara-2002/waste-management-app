@@ -1,0 +1,308 @@
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async';
+
+class CollectorHome extends StatefulWidget {
+  const CollectorHome({super.key});
+
+  @override
+  State<CollectorHome> createState() => _CollectorHomeState();
+}
+
+class _CollectorHomeState extends State<CollectorHome> {
+  bool _isOnShift = false;
+  Timer? _locationTimer;
+  Position? _currentPosition;
+  final _firestore = FirebaseFirestore.instance;
+  String _statusMessage = 'Ready to start shift';
+
+  @override
+  void dispose() {
+    _stopShift();
+    super.dispose();
+  }
+
+  Future<void> _toggleShift() async {
+    if (_isOnShift) {
+      _stopShift();
+    } else {
+      await _startShift();
+    }
+  }
+
+  Future<void> _startShift() async {
+    // Check location permissions
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _showSnackBar('⚠️ Location services are disabled. Please enable them.');
+      return;
+    }
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        _showSnackBar('⚠️ Location permission denied');
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      _showSnackBar('⚠️ Location permissions are permanently denied');
+      return;
+    }
+
+    // Get initial position
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      
+      setState(() {
+        _currentPosition = position;
+        _isOnShift = true;
+        _statusMessage = 'Shift active - Broadcasting location';
+      });
+
+      await _updateLocation(position);
+      _showSnackBar('✅ Shift started - Location broadcasting every 10s');
+
+      // Start periodic location updates (every 10 seconds)
+      _locationTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+        try {
+          final position = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.high,
+          );
+          
+          setState(() {
+            _currentPosition = position;
+          });
+          
+          await _updateLocation(position);
+        } catch (e) {
+          debugPrint('Error getting location: $e');
+        }
+      });
+    } catch (e) {
+      _showSnackBar('Error getting location: $e');
+    }
+  }
+
+  void _stopShift() {
+    _locationTimer?.cancel();
+    _locationTimer = null;
+
+    // Remove truck location from Firestore when shift ends
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      _firestore.collection('truck_locations').doc(user.uid).delete();
+    }
+
+    setState(() {
+      _isOnShift = false;
+      _statusMessage = 'Shift ended';
+    });
+
+    _showSnackBar('Shift ended - Location broadcasting stopped');
+  }
+
+  Future<void> _updateLocation(Position position) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      await _firestore.collection('truck_locations').doc(user.uid).set({
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+        'timestamp': FieldValue.serverTimestamp(),
+        'accuracy': position.accuracy,
+        'collectorId': user.uid,
+      });
+    } catch (e) {
+      debugPrint('Error updating location: $e');
+    }
+  }
+
+  Future<void> _logout() async {
+    if (_isOnShift) {
+      _stopShift();
+    }
+    
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacementNamed(context, '/');
+    }
+  }
+
+  void _showSnackBar(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Collector Portal'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Logout',
+            onPressed: _logout,
+          ),
+        ],
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // Status Icon
+              Icon(
+                _isOnShift ? Icons.location_on : Icons.location_off,
+                size: 100,
+                color: _isOnShift ? Colors.green : Colors.grey,
+              ),
+              const SizedBox(height: 24),
+
+              // Status Text
+              Text(
+                _statusMessage,
+                style: TextStyle(
+                  fontSize: 18,
+                  color: _isOnShift ? Colors.green : Colors.grey[700],
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 32),
+
+              // Location Info
+              if (_currentPosition != null) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        _buildInfoRow(
+                          Icons.my_location,
+                          'Latitude',
+                          _currentPosition!.latitude.toStringAsFixed(6),
+                        ),
+                        const Divider(),
+                        _buildInfoRow(
+                          Icons.my_location,
+                          'Longitude',
+                          _currentPosition!.longitude.toStringAsFixed(6),
+                        ),
+                        const Divider(),
+                        _buildInfoRow(
+                          Icons.speed,
+                          'Accuracy',
+                          '${_currentPosition!.accuracy.toStringAsFixed(1)}m',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+
+              // Toggle Shift Button
+              SizedBox(
+                width: double.infinity,
+                height: 60,
+                child: ElevatedButton(
+                  onPressed: _toggleShift,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isOnShift ? Colors.red : Colors.green,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _isOnShift ? Icons.stop_circle : Icons.play_circle,
+                        size: 28,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        _isOnShift ? 'End Shift' : 'Start Shift',
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 24),
+
+              // Info Card
+              Card(
+                color: Colors.blue[50],
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(Icons.info_outline, color: Colors.blue[700]),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _isOnShift
+                              ? 'Your location is being broadcast to residents every 10 seconds'
+                              : 'Start your shift to broadcast your location to residents',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.blue[900],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[700]),
+          const SizedBox(width: 12),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const Spacer(),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[700],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
