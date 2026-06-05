@@ -42,6 +42,9 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/resident': (context) => const ResidentHome(),
         '/collector': (context) => const CollectorHome(),
+        // Aliases for legacy register screen routes
+        '/resident_home': (context) => const ResidentHome(),
+        '/collector_home': (context) => const CollectorHome(),
       },
     );
   }

@@ -44,7 +44,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (user != null && mounted) {
       Navigator.pushReplacementNamed(
         context,
-        _selectedRole == 'resident' ? '/resident_home' : '/collector_home',
+        _selectedRole == 'resident' ? '/resident' : '/collector',
       );
     } else {
       if (mounted) {

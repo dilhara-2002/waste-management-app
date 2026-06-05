@@ -27,7 +27,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.didChangeDependencies();
     // Get role from navigation arguments
     final args = ModalRoute.of(context)?.settings.arguments;
-    if (args != null && args is String) {
+    if (args is String && args != _role) {
       setState(() {
         _role = args;
       });
@@ -56,7 +56,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
       if (credential.user != null) {
         // Create user document in Firestore
-        await _firestore.collection('users').doc(credential.user!.uid).set({
+        final userDocRef = _firestore.collection('users').doc(credential.user!.uid);
+        await userDocRef.set({
           'uid': credential.user!.uid,
           'email': _emailController.text.trim(),
           'role': _role,
@@ -65,13 +66,9 @@ class _SignUpScreenState extends State<SignUpScreen> {
         });
 
         if (mounted) {
-          _showSnackBar('Account created successfully!');
-          // Navigate to appropriate home screen
-          if (_role == 'resident') {
-            Navigator.pushReplacementNamed(context, '/resident');
-          } else {
-            Navigator.pushReplacementNamed(context, '/collector');
-          }
+          _showSnackBar('Account created successfully! Redirecting...');
+          final targetRoute = _role == 'collector' ? '/collector' : '/resident';
+          Navigator.pushReplacementNamed(context, targetRoute);
         }
       }
     } on FirebaseAuthException catch (e) {
