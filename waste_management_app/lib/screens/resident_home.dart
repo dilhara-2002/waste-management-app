@@ -23,6 +23,7 @@ class _ResidentHomeState extends State<ResidentHome> {
   List<LatLng>? _routePoints;
   num? _routeDistance;
   num? _routeDuration;
+  int _notificationFilterIndex = 0; // 0: All, 1: Reminders, 2: Updates, 3: Alerts
 
   @override
   void initState() {
@@ -75,30 +76,32 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   void _listenToTruckLocation() {
-    _firestore.collection('truck_locations').snapshots().listen((snapshot) {
-      if (snapshot.docs.isNotEmpty && mounted) {
-        final data = snapshot.docs.first.data();
+    // Listen to the specific truck document written by collectors ('truck_1')
+    final docRef = _firestore.collection('truck_locations').doc('truck_1');
+    docRef.snapshots().listen((snapshot) {
+      if (snapshot.exists && mounted) {
+        final data = snapshot.data();
+        if (data == null) return;
+
         final timestamp = data['timestamp'] as Timestamp?;
-        
         debugPrint('🚛 Truck location received: lat=${data['latitude']}, lon=${data['longitude']}');
-        
-        // Only show truck if updated within last 60 seconds (active shift)
+
         if (timestamp != null) {
           final age = DateTime.now().difference(timestamp.toDate());
           debugPrint('🕐 Truck location age: ${age.inSeconds} seconds');
-          
+
           if (age.inSeconds < 60) {
             debugPrint('✅ Showing truck on map');
             setState(() {
               _truckLocation = data;
             });
-            _fetchRoute(); // Fetch route when truck location updates
+            _fetchRoute();
             return;
           } else {
-            debugPrint('⏰ Truck location too old (${(age.inHours)} hours), hiding');
-            // Auto-delete very old locations (older than 1 hour)
+            debugPrint('⏰ Truck location too old (${age.inHours} hours), hiding');
             if (age.inHours > 1) {
-              _firestore.collection('truck_locations').doc(snapshot.docs.first.id).delete();
+              // Cleanup stale document
+              docRef.delete();
               debugPrint('🗑️ Deleted stale truck location');
             }
           }
@@ -106,10 +109,9 @@ class _ResidentHomeState extends State<ResidentHome> {
           debugPrint('⚠️ No timestamp on truck location');
         }
       } else {
-        debugPrint('📍 No truck locations in database');
+        debugPrint('📍 No truck location document');
       }
-      
-      // No recent truck location
+
       if (mounted) {
         setState(() {
           _truckLocation = null;
@@ -282,32 +284,140 @@ class _ResidentHomeState extends State<ResidentHome> {
     }
   }
 
+  void _showProfileSheet() {
+    final user = FirebaseAuth.instance.currentUser;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+          child: SafeArea(
+            child: Wrap(
+              children: [
+                ListTile(
+                  title: const Text('Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(Icons.email_outlined),
+                  title: const Text('Email'),
+                  subtitle: Text(user?.email ?? _userData?['email'] ?? 'Not set'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.home_outlined),
+                  title: const Text('Address'),
+                  subtitle: Text(_userData?['address'] ?? (_userData?['latitude'] != null ? 'Lat: ${_userData!['latitude']}, Lon: ${_userData!['longitude']}' : 'Not set')),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await _showSetLocationDialog();
+                    },
+                    child: const Text('Edit'),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.lock_outline),
+                  title: const Text('Password'),
+                  subtitle: const Text('Change or reset your password'),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      final email = user?.email ?? _userData?['email'];
+                      if (email == null) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email available to send reset link')));
+                        return;
+                      }
+                      try {
+                        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+                      } catch (e) {
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error sending reset email: $e')));
+                      }
+                    },
+                    child: const Text('Reset'),
+                  ),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Logout'),
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _logout();
+                  },
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // New layout: Home | Map | Schedule | Report | Alerts
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Resident Portal'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'Segregation Guide',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const SegregationGuide(),
+      backgroundColor: Colors.grey[50],
+      body: SafeArea(
+        child: Column(
+          children: [
+            // Top header matching Figma style
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.green.shade700, Colors.green.shade400]),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
                 ),
-              );
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: _logout,
-          ),
-        ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Hello', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 6),
+                        Text('What can we do for you?', style: TextStyle(color: Colors.white.withOpacity(0.9))),
+                      ],
+                    ),
+                  ),
+                  CircleAvatar(
+                    radius: 26,
+                    backgroundColor: Colors.white,
+                    child: IconButton(
+                      icon: const Icon(Icons.person, color: Colors.green),
+                      onPressed: _showProfileSheet,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Expanded content area switching by index
+            Expanded(
+              child: IndexedStack(
+                index: _currentIndex,
+                children: [
+                  _buildHomeTab(),
+                  _buildMapTab(),
+                  _buildScheduleTab(),
+                  _buildReportTab(),
+                  _buildAlertsTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-      body: _currentIndex == 0 ? _buildScheduleTab() : _buildMapTab(),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -315,15 +425,15 @@ class _ResidentHomeState extends State<ResidentHome> {
             _currentIndex = index;
           });
         },
+        type: BottomNavigationBarType.fixed,
+        selectedItemColor: Colors.green[700],
+        unselectedItemColor: Colors.grey[600],
         items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_today),
-            label: 'Schedule',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.map),
-            label: 'Live Tracker',
-          ),
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.map_outlined), label: 'Map'),
+          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Schedule'),
+          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Report'),
+          BottomNavigationBarItem(icon: Icon(Icons.notifications_outlined), label: 'Alerts'),
         ],
       ),
       floatingActionButton: _currentIndex == 0
@@ -334,6 +444,284 @@ class _ResidentHomeState extends State<ResidentHome> {
               label: const Text('DEBUG: Add Data'),
             )
           : null,
+    );
+  }
+
+  // HOME tab: upcoming collection card + quick actions + tips
+  Widget _buildHomeTab() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Quick actions row
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _quickAction(Icons.calendar_today, 'Schedule', () {
+                setState(() => _currentIndex = 2);
+              }),
+              _quickAction(Icons.report_gmailerrorred, 'Report Missed Pickup', () {
+                Navigator.pushNamed(context, '/login');
+              }),
+              _quickAction(Icons.menu_book, 'Segregation Guide', () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const SegregationGuide()),
+                );
+              }),
+            ],
+          ),
+          const SizedBox(height: 18),
+
+          const Text('Upcoming Collection', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+                child: const Text('Oct\n24', textAlign: TextAlign.center, style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+              ),
+              title: const Text('Domestic Waste', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Tomorrow, 08:00 AM - 10:00 AM'),
+              trailing: const Icon(Icons.local_shipping),
+            ),
+          ),
+
+          const SizedBox(height: 18),
+          const Text('Waste Segregation Tips', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 110,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                _tipCard('1', 'Plastic', Colors.blue),
+                const SizedBox(width: 12),
+                _tipCard('2', 'Paper', Colors.orange),
+                const SizedBox(width: 12),
+                _tipCard('3', 'Glass', Colors.green),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _quickAction(IconData icon, String label, VoidCallback onTap) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: Colors.green[700]),
+                const SizedBox(height: 8),
+                Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _tipCard(String number, String title, Color color) {
+    return Container(
+      width: 160,
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(radius: 14, backgroundColor: color.withOpacity(0.1), child: Text(number, style: TextStyle(color: color, fontWeight: FontWeight.bold))),
+            const SizedBox(height: 12),
+            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const Text('Short tip description goes here', style: TextStyle(color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // REPORT tab placeholder
+  Widget _buildReportTab() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.report, size: 80, color: Colors.grey[400]),
+          const SizedBox(height: 12),
+          const Text('Report an issue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Use this screen to submit missed pickups or service requests.'),
+        ],
+      ),
+    );
+  }
+
+  // ALERTS / Notifications tab
+  Widget _buildAlertsTab() {
+    // Notifications screen with filter chips
+    final filters = ['All', 'Reminders', 'Updates', 'Alerts'];
+
+    Future<void> _markAllRead(QuerySnapshot snapshot) async {
+      final batch = _firestore.batch();
+      for (var doc in snapshot.docs) {
+        batch.update(doc.reference, {'read': true});
+      }
+      await batch.commit();
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text('Notifications', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              ),
+              TextButton.icon(
+                onPressed: () async {
+                  final snap = await _firestore.collection('notifications').get();
+                  await _markAllRead(snap);
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marked all read')));
+                },
+                icon: const Icon(Icons.check, color: Colors.green),
+                label: const Text('Mark all read', style: TextStyle(color: Colors.green)),
+              ),
+            ],
+          ),
+        ),
+
+        // Filter chips
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: List.generate(filters.length, (i) {
+              final selected = i == _notificationFilterIndex;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(filters[i]),
+                  selected: selected,
+                  onSelected: (_) {
+                    setState(() {
+                      _notificationFilterIndex = i;
+                    });
+                  },
+                  selectedColor: Colors.green[400],
+                  backgroundColor: Colors.grey[200],
+                  labelStyle: TextStyle(color: selected ? Colors.white : Colors.black),
+                ),
+              );
+            }),
+          ),
+        ),
+
+        const Divider(height: 1),
+
+        // Notifications list
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _firestore.collection('notifications').orderBy('createdAt', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                return Center(child: Text('No notifications', style: TextStyle(color: Colors.grey[600])));
+              }
+
+              final docs = snapshot.data!.docs.where((d) {
+                if (_notificationFilterIndex == 0) return true;
+                final type = (d.data() as Map<String, dynamic>)['type']?.toString().toLowerCase() ?? '';
+                if (_notificationFilterIndex == 1) return type.contains('remind') || type == 'reminder';
+                if (_notificationFilterIndex == 2) return type.contains('update');
+                if (_notificationFilterIndex == 3) return type.contains('alert');
+                return true;
+              }).toList();
+
+              if (docs.isEmpty) {
+                return Center(child: Text('No notifications', style: TextStyle(color: Colors.grey[600])));
+              }
+
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final data = docs[index].data() as Map<String, dynamic>;
+                  final title = data['title'] ?? 'Notification';
+                  final body = data['body'] ?? '';
+                  final type = data['type']?.toString().toLowerCase() ?? '';
+                  final createdAt = data['createdAt'] as Timestamp?;
+
+                  Color leftColor = Colors.grey;
+                  IconData icon = Icons.notifications;
+                  if (type.contains('remind') || type == 'reminder') {
+                    leftColor = Colors.green;
+                    icon = Icons.local_shipping;
+                  } else if (type.contains('update')) {
+                    leftColor = Colors.purple;
+                    icon = Icons.check_circle;
+                  } else if (type.contains('alert')) {
+                    leftColor = Colors.orange;
+                    icon = Icons.warning_amber_rounded;
+                  }
+
+                  String timeText = '';
+                  if (createdAt != null) {
+                    final dt = createdAt.toDate();
+                    final diff = DateTime.now().difference(dt);
+                    if (diff.inDays >= 1) {
+                      timeText = '${dt.month}/${dt.day}/${dt.year}';
+                    } else if (diff.inHours >= 1) {
+                      timeText = '${diff.inHours}h ago';
+                    } else if (diff.inMinutes >= 1) {
+                      timeText = '${diff.inMinutes}m ago';
+                    } else {
+                      timeText = 'just now';
+                    }
+                  }
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Container(width: 6, height: 84, decoration: BoxDecoration(color: leftColor, borderRadius: BorderRadius.circular(6))),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Card(
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              leading: CircleAvatar(backgroundColor: leftColor.withOpacity(0.12), child: Icon(icon, color: leftColor)),
+                              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text(body),
+                              trailing: Text(timeText, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
