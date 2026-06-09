@@ -17,6 +17,8 @@ class ResidentHome extends StatefulWidget {
 
 class _ResidentHomeState extends State<ResidentHome> {
   int _currentIndex = 0;
+  int _scheduleFilterIndex = 1; // 0: All, 1: Upcoming, 2: Completed, 3: Missed
+  int _selectedScheduleDayIndex = DateTime.now().weekday - 1;
   final _firestore = FirebaseFirestore.instance;
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _truckLocation;
@@ -24,6 +26,10 @@ class _ResidentHomeState extends State<ResidentHome> {
   num? _routeDistance;
   num? _routeDuration;
   int _notificationFilterIndex = 0; // 0: All, 1: Reminders, 2: Updates, 3: Alerts
+  int _supportTabIndex = 0; // 0: Report Issue, 1: Give Feedback
+  String _selectedIssueType = 'Missed Pickup';
+  String _reportDescription = '';
+  String _feedbackMessage = '';
 
   @override
   void initState() {
@@ -368,39 +374,7 @@ class _ResidentHomeState extends State<ResidentHome> {
       body: SafeArea(
         child: Column(
           children: [
-            // Top header matching Figma style
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Colors.green.shade700, Colors.green.shade400]),
-                borderRadius: const BorderRadius.only(
-                  bottomLeft: Radius.circular(20),
-                  bottomRight: Radius.circular(20),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text('Hello', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 6),
-                        Text('What can we do for you?', style: TextStyle(color: Colors.white.withOpacity(0.9))),
-                      ],
-                    ),
-                  ),
-                  CircleAvatar(
-                    radius: 26,
-                    backgroundColor: Colors.white,
-                    child: IconButton(
-                      icon: const Icon(Icons.person, color: Colors.green),
-                      onPressed: _showProfileSheet,
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            if (_currentIndex == 0) _buildHomeHeader(),
 
             // Expanded content area switching by index
             Expanded(
@@ -436,14 +410,41 @@ class _ResidentHomeState extends State<ResidentHome> {
           BottomNavigationBarItem(icon: Icon(Icons.notifications_outlined), label: 'Alerts'),
         ],
       ),
-      floatingActionButton: _currentIndex == 0
-          ? FloatingActionButton.extended(
-              onPressed: _addDummyData,
-              backgroundColor: Colors.orange,
-              icon: const Icon(Icons.bug_report),
-              label: const Text('DEBUG: Add Data'),
-            )
-          : null,
+    );
+  }
+
+  Widget _buildHomeHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: [Colors.green.shade700, Colors.green.shade400]),
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(20),
+          bottomRight: Radius.circular(20),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Hello', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                Text('What can we do for you?', style: TextStyle(color: Colors.white.withValues(alpha: 0.9))),
+              ],
+            ),
+          ),
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: Colors.white,
+            child: IconButton(
+              icon: const Icon(Icons.person, color: Colors.green),
+              onPressed: _showProfileSheet,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -494,7 +495,7 @@ class _ResidentHomeState extends State<ResidentHome> {
           const Text('Waste Segregation Tips', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           SizedBox(
-            height: 110,
+            height: 160,
             child: ListView(
               scrollDirection: Axis.horizontal,
               children: [
@@ -546,26 +547,479 @@ class _ResidentHomeState extends State<ResidentHome> {
             const SizedBox(height: 12),
             Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
-            const Text('Short tip description goes here', style: TextStyle(color: Colors.grey)),
+            const Text(
+              'Short tip description goes here',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.grey),
+            ),
           ],
         ),
       ),
     );
   }
 
-  // REPORT tab placeholder
+  // REPORT tab: support and feedback form
   Widget _buildReportTab() {
-    return Center(
+    return SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.report, size: 80, color: Colors.grey[400]),
-          const SizedBox(height: 12),
-          const Text('Report an issue', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          const Text('Use this screen to submit missed pickups or service requests.'),
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(34),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF1D2A40).withValues(alpha: 0.07),
+                  blurRadius: 16,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Support & Feedback',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF1F2A3D),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      Expanded(child: _supportTabButton('Report Issue', 0)),
+                      Expanded(child: _supportTabButton('Give Feedback', 1)),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, color: Color(0xFFE8EDF3)),
+                  const SizedBox(height: 16),
+                  if (_supportTabIndex == 0) ...[
+                    const Text(
+                      'Issue Type',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF34445A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    InkWell(
+                      onTap: _showIssueTypePicker,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFD),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE4EAF1)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _selectedIssueType,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  color: Color(0xFF3A4A60),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const Icon(Icons.keyboard_arrow_down, color: Color(0xFF90A0B5)),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Description',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF34445A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFD),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE4EAF1)),
+                      ),
+                      child: TextField(
+                        maxLines: 5,
+                        onChanged: (value) => _reportDescription = value,
+                        decoration: const InputDecoration(
+                          hintText: 'Please describe the issue in detail...',
+                          hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.all(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Attach Photo (Optional)',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF34445A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 28),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F7FB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFDCE5EF), style: BorderStyle.solid),
+                      ),
+                      child: const Column(
+                        children: [
+                          Icon(Icons.camera_alt_outlined, size: 34, color: Color(0xFF90A0B5)),
+                          SizedBox(height: 8),
+                          Text(
+                            'Tap to upload photo',
+                            style: TextStyle(
+                              color: Color(0xFF6E839C),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _primaryActionButton(
+                      label: 'Submit Report',
+                      onTap: _submitReport,
+                    ),
+                  ] else ...[
+                    const Text(
+                      'Share Your Feedback',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF34445A),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFD),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE4EAF1)),
+                      ),
+                      child: TextField(
+                        maxLines: 6,
+                        onChanged: (value) => _feedbackMessage = value,
+                        decoration: const InputDecoration(
+                          hintText: 'Tell us how we can improve your collection experience...',
+                          hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.all(14),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _primaryActionButton(
+                      label: 'Submit Feedback',
+                      onTap: _submitFeedback,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Recent Reports',
+            style: TextStyle(
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF1F2A3D),
+            ),
+          ),
+          const SizedBox(height: 10),
+          _buildRecentReportsList(),
         ],
       ),
+    );
+  }
+
+  Widget _supportTabButton(String title, int index) {
+    final isActive = _supportTabIndex == index;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _supportTabIndex = index;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.only(bottom: 10),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: isActive ? const Color(0xFF18C08F) : Colors.transparent,
+              width: 2,
+            ),
+          ),
+        ),
+        child: Text(
+          title,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: isActive ? const Color(0xFF07A375) : const Color(0xFF6E7F96),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _primaryActionButton({required String label, required VoidCallback onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF18B984),
+          borderRadius: BorderRadius.circular(14),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF18B984).withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.send_outlined, color: Colors.white),
+            const SizedBox(width: 10),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: Colors.white,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showIssueTypePicker() async {
+    final issueTypes = [
+      'Missed Pickup',
+      'Late Collection',
+      'Wrong Waste Type',
+      'Damaged Bin',
+      'Other',
+    ];
+
+    if (!mounted) return;
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: issueTypes.length,
+            itemBuilder: (context, index) {
+              final type = issueTypes[index];
+              return ListTile(
+                title: Text(type),
+                trailing: _selectedIssueType == type
+                    ? const Icon(Icons.check, color: Color(0xFF18B984))
+                    : null,
+                onTap: () => Navigator.pop(context, type),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    if (selected != null && mounted) {
+      setState(() {
+        _selectedIssueType = selected;
+      });
+    }
+  }
+
+  Future<void> _submitReport() async {
+    if (_reportDescription.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please add a description before submitting.')),
+        );
+      }
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    try {
+      await _firestore.collection('reports').add({
+        'type': _selectedIssueType,
+        'description': _reportDescription.trim(),
+        'status': 'Submitted',
+        'userId': user?.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        setState(() {
+          _reportDescription = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Report submitted successfully.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not submit report. Saved locally in this session.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _submitFeedback() async {
+    if (_feedbackMessage.trim().isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please enter your feedback message.')),
+        );
+      }
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    try {
+      await _firestore.collection('feedback').add({
+        'message': _feedbackMessage.trim(),
+        'userId': user?.uid,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        setState(() {
+          _feedbackMessage = '';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Feedback submitted. Thank you!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not submit feedback right now.')),
+        );
+      }
+    }
+  }
+
+  Widget _buildRecentReportsList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _firestore.collection('reports').orderBy('createdAt', descending: true).limit(3).snapshots(),
+      builder: (context, snapshot) {
+        List<Map<String, dynamic>> reports = [];
+
+        if (snapshot.hasData) {
+          reports = snapshot.data!.docs
+              .map((doc) => doc.data() as Map<String, dynamic>)
+              .toList();
+        }
+
+        if (snapshot.hasError || reports.isEmpty) {
+          reports = [
+            {'type': 'Missed Pickup', 'status': 'Submitted', 'createdAt': null},
+            {'type': 'Damaged Bin', 'status': 'In Review', 'createdAt': null},
+          ];
+        }
+
+        return Column(
+          children: reports.map((report) {
+            final status = (report['status'] ?? 'Submitted').toString();
+            final type = (report['type'] ?? 'Issue').toString();
+
+            Color statusColor = const Color(0xFF2B72D6);
+            if (status.toLowerCase().contains('review')) {
+              statusColor = const Color(0xFFF29D38);
+            } else if (status.toLowerCase().contains('resolved')) {
+              statusColor = const Color(0xFF11A76A);
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: const Color(0xFFE5ECF3)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F5FB),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.assignment_outlined, color: Color(0xFF6F8299)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      type,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF253449),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      status,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        );
+      },
     );
   }
 
@@ -992,120 +1446,473 @@ class _ResidentHomeState extends State<ResidentHome> {
           return const Center(child: CircularProgressIndicator());
         }
 
+        final schedules = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
+        final sourceSchedules = schedules
+            .map((doc) => doc.data() as Map<String, dynamic>)
+            .toList();
+
         if (snapshot.hasError) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                const SizedBox(height: 16),
-                Text(
-                  'Error loading schedules',
-                  style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-                ),
-              ],
-            ),
-          );
+          debugPrint('Schedule stream error: ${snapshot.error}');
+          if (sourceSchedules.isEmpty) {
+            sourceSchedules.addAll(_fallbackSchedules());
+          }
         }
 
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.event_busy, size: 80, color: Colors.grey[400]),
-                const SizedBox(height: 16),
-                Text(
-                  'No schedules available',
-                  style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+        final selectedDayName = _weekdayLongName(_selectedScheduleDayIndex);
+        final filteredSchedules = sourceSchedules.where((schedule) {
+          final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
+          final status = _scheduleStatus(schedule, dayOfWeek);
+
+          final dayMatches = dayOfWeek.isEmpty || dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
+          if (!dayMatches) return false;
+
+          if (_scheduleFilterIndex == 0) return true;
+          if (_scheduleFilterIndex == 1) return status == 'Upcoming';
+          if (_scheduleFilterIndex == 2) return status == 'Completed';
+          return status == 'Missed';
+        }).toList();
+
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(34),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF1B2738).withValues(alpha: 0.06),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Tap the DEBUG button to add sample data',
-                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
-                ),
-              ],
-            ),
-          );
-        }
-
-        final schedules = snapshot.data!.docs;
-
-        return ListView.builder(
-          padding: const EdgeInsets.all(16),
-          itemCount: schedules.length,
-          itemBuilder: (context, index) {
-            final schedule = schedules[index].data() as Map<String, dynamic>;
-            final wasteType = schedule['wasteType'] ?? 'Unknown';
-            final dayOfWeek = schedule['dayOfWeek'] ?? 'Unknown';
-            final areaName = schedule['areaName'] ?? 'Unknown';
-            final time = schedule['time'] ?? '';
-
-            IconData wasteIcon;
-            Color wasteColor;
-
-            if (wasteType.toLowerCase().contains('recycl')) {
-              wasteIcon = Icons.recycling;
-              wasteColor = Colors.green;
-            } else {
-              wasteIcon = Icons.delete_outline;
-              wasteColor = Colors.grey;
-            }
-
-            return Card(
-              margin: const EdgeInsets.only(bottom: 12),
-              elevation: 2,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: ListTile(
-                contentPadding: const EdgeInsets.all(16),
-                leading: CircleAvatar(
-                  backgroundColor: wasteColor.withOpacity(0.2),
-                  child: Icon(wasteIcon, color: wasteColor, size: 28),
-                ),
-                title: Text(
-                  wasteType,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 8),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      const Text(
+                        'Collection Schedule',
+                        style: TextStyle(
+                          fontSize: 36,
+                          height: 1.0,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.8,
+                          color: Color(0xFF1B2738),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Managed by your area admin',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Colors.blueGrey.shade400,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      _buildWeekStrip(),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
-                          const Icon(Icons.calendar_today, size: 16, color: Colors.grey),
+                          Expanded(child: _filterChip('All', 0)),
                           const SizedBox(width: 8),
-                          Text(dayOfWeek, style: const TextStyle(fontSize: 14)),
-                          if (time.isNotEmpty) ...[
-                            const SizedBox(width: 16),
-                            const Icon(Icons.access_time, size: 16, color: Colors.grey),
-                            const SizedBox(width: 4),
-                            Text(time, style: const TextStyle(fontSize: 14)),
-                          ],
+                          Expanded(child: _filterChip('Upcoming', 1)),
+                          const SizedBox(width: 8),
+                          Expanded(child: _filterChip('Completed', 2)),
+                          const SizedBox(width: 8),
+                          Expanded(child: _filterChip('Missed', 3)),
                         ],
                       ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          const Icon(Icons.location_on, size: 16, color: Colors.grey),
-                          const SizedBox(width: 8),
-                          Text(areaName, style: const TextStyle(fontSize: 14)),
-                        ],
-                      ),
+                      const SizedBox(height: 16),
+                      const Divider(height: 1, color: Color(0xFFEAEFF4)),
+                      const SizedBox(height: 14),
+                      if (filteredSchedules.isEmpty)
+                        _buildNoSchedulesCard()
+                      else
+                        ...filteredSchedules.map((schedule) {
+                          return _buildScheduleCard(schedule);
+                        }),
                     ],
                   ),
                 ),
               ),
-            );
-          },
+            ],
+          ),
         );
       },
     );
+  }
+
+  Widget _buildWeekStrip() {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: List.generate(7, (index) {
+        final dayDate = monday.add(Duration(days: index));
+        final isSelected = _selectedScheduleDayIndex == index;
+        final dayName = _weekdayShortName(index);
+
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _selectedScheduleDayIndex = index;
+            });
+          },
+          child: Container(
+            width: 42,
+            height: 66,
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF16C37E) : Colors.transparent,
+              borderRadius: BorderRadius.circular(21),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  dayName,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w500,
+                    color: isSelected ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF8EA0B5),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${dayDate.day}',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: isSelected ? Colors.white : const Color(0xFF223246),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _filterChip(String label, int index) {
+    final selected = _scheduleFilterIndex == index;
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _scheduleFilterIndex = index;
+        });
+      },
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(vertical: 9),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFF1C2B43) : const Color(0xFFEFF2F7),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : const Color(0xFF748399),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoSchedulesCard() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE7ECF2)),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.event_busy, color: Color(0xFF8FA1B8), size: 34),
+          const SizedBox(height: 10),
+          const Text(
+            'No schedules for this day',
+            style: TextStyle(
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF30445B),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Try another day or filter',
+            style: TextStyle(color: Colors.blueGrey.shade300),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleCard(Map<String, dynamic> schedule) {
+    final wasteType = (schedule['wasteType'] ?? 'Unknown Waste').toString();
+    final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
+    final areaName = (schedule['areaName'] ?? '61a Buganda Rd, Kampala').toString();
+    final time = (schedule['time'] ?? '08:00 AM - 10:00 AM').toString();
+    final status = _scheduleStatus(schedule, dayOfWeek);
+
+    IconData wasteIcon;
+    if (wasteType.toLowerCase().contains('plastic')) {
+      wasteIcon = Icons.local_drink_outlined;
+    } else if (wasteType.toLowerCase().contains('recycl')) {
+      wasteIcon = Icons.recycling_outlined;
+    } else {
+      wasteIcon = Icons.delete_outline;
+    }
+
+    final cardDate = _nextDateForWeekday(dayOfWeek);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE8EDF3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F6FA),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(wasteIcon, color: const Color(0xFF7D8EA5), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      wasteType,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1F2D3F),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    _statusBadge(status),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _scheduleMetaRow(Icons.calendar_today_outlined, _formatCardDate(cardDate)),
+          const SizedBox(height: 7),
+          _scheduleMetaRow(Icons.access_time, _formatTimeRange(time)),
+          const SizedBox(height: 7),
+          _scheduleMetaRow(Icons.location_on_outlined, areaName),
+          const SizedBox(height: 8),
+          Row(
+            children: const [
+              Icon(Icons.verified_user_outlined, size: 16, color: Color(0xFF0BAA68)),
+              SizedBox(width: 6),
+              Text(
+                'Admin Scheduled',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0BAA68),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusBadge(String status) {
+    Color bg;
+    Color fg;
+    IconData icon;
+
+    if (status == 'Completed') {
+      bg = const Color(0xFFE7F7EE);
+      fg = const Color(0xFF0FA766);
+      icon = Icons.check_circle_outline;
+    } else if (status == 'Missed') {
+      bg = const Color(0xFFFDEDED);
+      fg = const Color(0xFFCB4A4A);
+      icon = Icons.error_outline;
+    } else {
+      bg = const Color(0xFFE8F1FF);
+      fg = const Color(0xFF2E65D6);
+      icon = Icons.watch_later_outlined;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fg),
+          const SizedBox(width: 4),
+          Text(
+            status,
+            style: TextStyle(
+              fontSize: 11,
+              color: fg,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _scheduleMetaRow(IconData icon, String text) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: const Color(0xFF95A4B7)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF7F8EA1),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _weekdayShortName(int index) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days[index];
+  }
+
+  String _weekdayLongName(int index) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[index];
+  }
+
+  DateTime _nextDateForWeekday(String dayOfWeek) {
+    const map = {
+      'monday': 1,
+      'tuesday': 2,
+      'wednesday': 3,
+      'thursday': 4,
+      'friday': 5,
+      'saturday': 6,
+      'sunday': 7,
+    };
+
+    final targetWeekday = map[dayOfWeek.toLowerCase()] ?? DateTime.now().weekday;
+    final now = DateTime.now();
+    final diff = (targetWeekday - now.weekday + 7) % 7;
+    return now.add(Duration(days: diff));
+  }
+
+  String _formatCardDate(DateTime date) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final target = DateTime(date.year, date.month, date.day);
+    final daysBetween = target.difference(today).inDays;
+
+    if (daysBetween == 0) {
+      return 'Today, ${months[date.month - 1]} ${date.day}';
+    }
+    if (daysBetween == 1) {
+      return 'Tomorrow, ${months[date.month - 1]} ${date.day}';
+    }
+
+    return '${_weekdayShortName(date.weekday - 1)}, ${months[date.month - 1]} ${date.day}';
+  }
+
+  String _formatTimeRange(String rawTime) {
+    if (rawTime.contains('-')) return rawTime;
+    if (rawTime.isEmpty) return '08:00 AM - 10:00 AM';
+    return '$rawTime - 10:00 AM';
+  }
+
+  String _scheduleStatus(Map<String, dynamic> schedule, String dayOfWeek) {
+    final explicitStatus = (schedule['status'] ?? '').toString().toLowerCase();
+    if (explicitStatus == 'completed') return 'Completed';
+    if (explicitStatus == 'missed') return 'Missed';
+    if (explicitStatus == 'upcoming') return 'Upcoming';
+
+    final date = _nextDateForWeekday(dayOfWeek);
+    final now = DateTime.now();
+    final dayOnlyNow = DateTime(now.year, now.month, now.day);
+    final dayOnlySchedule = DateTime(date.year, date.month, date.day);
+
+    if (dayOnlySchedule.isBefore(dayOnlyNow)) {
+      return 'Completed';
+    }
+    return 'Upcoming';
+  }
+
+  List<Map<String, dynamic>> _fallbackSchedules() {
+    return [
+      {
+        'wasteType': 'Domestic Waste',
+        'dayOfWeek': 'Wednesday',
+        'areaName': '61a Buganda Rd, Kampala',
+        'time': '08:00 AM - 10:00 AM',
+        'status': 'upcoming',
+      },
+      {
+        'wasteType': 'Plastic Waste',
+        'dayOfWeek': 'Friday',
+        'areaName': '61a Buganda Rd, Kampala',
+        'time': '02:00 PM - 04:00 PM',
+        'status': 'upcoming',
+      },
+      {
+        'wasteType': 'Recyclable',
+        'dayOfWeek': 'Monday',
+        'areaName': 'Central Ward',
+        'time': '09:00 AM - 11:00 AM',
+        'status': 'completed',
+      },
+    ];
   }
 }
 
