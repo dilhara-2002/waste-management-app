@@ -1095,13 +1095,60 @@ class _ResidentHomeState extends State<ResidentHome> {
                 return const Center(child: CircularProgressIndicator());
               }
 
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return Center(child: Text('No notifications', style: TextStyle(color: Colors.grey[600])));
+              // Sample notifications for demonstration
+              final sampleNotifications = [
+                {
+                  'title': 'Waste Collection Tomorrow',
+                  'body': 'Your weekly waste collection is scheduled for tomorrow at 8:00 AM. Please have your bins ready.',
+                  'type': 'reminder',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 2))),
+                },
+                {
+                  'title': 'System Update',
+                  'body': 'The waste management app has been updated with new features. Restart the app to see the changes.',
+                  'type': 'update',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 5))),
+                },
+                {
+                  'title': 'Improper Waste Disposal Alert',
+                  'body': 'A nearby resident improperly disposed of hazardous waste. Please be cautious and report similar incidents.',
+                  'type': 'alert',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 1))),
+                },
+                {
+                  'title': 'Truck Arriving Soon',
+                  'body': 'Collection truck is 10 minutes away from your location.',
+                  'type': 'reminder',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 12))),
+                },
+                {
+                  'title': 'Segregation Guidelines Updated',
+                  'body': 'New items have been added to the segregation guide. Check the guide for proper waste classification.',
+                  'type': 'update',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 2))),
+                },
+                {
+                  'title': 'Overflowing Bin Alert',
+                  'body': 'Bin at Block A is overflowing. Please contact waste management immediately.',
+                  'type': 'alert',
+                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 3))),
+                },
+              ];
+
+              // Use real notifications if available, otherwise show samples
+              List<Map<String, dynamic>> displayNotifications = [];
+              
+              if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                displayNotifications = snapshot.data!.docs.map((d) {
+                  return d.data() as Map<String, dynamic>;
+                }).toList();
+              } else {
+                displayNotifications = sampleNotifications;
               }
 
-              final docs = snapshot.data!.docs.where((d) {
+              final docs = displayNotifications.where((d) {
                 if (_notificationFilterIndex == 0) return true;
-                final type = (d.data() as Map<String, dynamic>)['type']?.toString().toLowerCase() ?? '';
+                final type = (d['type']?.toString().toLowerCase() ?? '');
                 if (_notificationFilterIndex == 1) return type.contains('remind') || type == 'reminder';
                 if (_notificationFilterIndex == 2) return type.contains('update');
                 if (_notificationFilterIndex == 3) return type.contains('alert');
@@ -1116,7 +1163,7 @@ class _ResidentHomeState extends State<ResidentHome> {
                 padding: const EdgeInsets.all(16),
                 itemCount: docs.length,
                 itemBuilder: (context, index) {
-                  final data = docs[index].data() as Map<String, dynamic>;
+                  final data = docs[index] as Map<String, dynamic>;
                   final title = data['title'] ?? 'Notification';
                   final body = data['body'] ?? '';
                   final type = data['type']?.toString().toLowerCase() ?? '';
