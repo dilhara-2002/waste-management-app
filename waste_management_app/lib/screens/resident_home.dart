@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'dart:convert';
 import '../utils/geo_helper.dart';
 import '../services/routing_service.dart';
 import 'segregation_guide.dart';
@@ -492,6 +493,74 @@ class _ResidentHomeState extends State<ResidentHome> {
           ),
 
           const SizedBox(height: 18),
+          const Text('Community Updates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          StreamBuilder<QuerySnapshot>(
+            stream: _firestore.collection('community_posts').where('published', isEqualTo: true).orderBy('createdAt', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final posts = snapshot.hasData
+                  ? snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList()
+                  : <Map<String, dynamic>>[];
+              if (posts.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text('No community posts yet. Collector updates will appear here.'),
+                );
+              }
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: posts.length,
+                separatorBuilder: (context, index) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final post = posts[index];
+                  final caption = (post['caption'] ?? 'Community update').toString();
+                  final imageUrl = (post['imageUrl'] ?? '').toString();
+                  return Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const CircleAvatar(radius: 18, backgroundColor: Colors.green, child: Icon(Icons.people, color: Colors.white, size: 18)),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text((post['author'] ?? 'Collector Team').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    Text('Community update', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          if (imageUrl.isNotEmpty)
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: _buildPostImage(imageUrl),
+                            ),
+                          const SizedBox(height: 10),
+                          Text(caption, style: const TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+          const SizedBox(height: 18),
           const Text('Waste Segregation Tips', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           SizedBox(
@@ -508,6 +577,86 @@ class _ResidentHomeState extends State<ResidentHome> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPostImage(String imageValue) {
+    if (imageValue.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    try {
+      if (imageValue.startsWith('data:image')) {
+        final base64Data = imageValue.split('base64,').last;
+        return Image.memory(
+          base64Decode(base64Data),
+          height: 180,
+          width: double.infinity,
+          fit: BoxFit.cover,
+        );
+      }
+
+      if (imageValue.startsWith('http')) {
+        return Image.network(
+          imageValue,
+          height: 180,
+          width: double.infinity,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => Container(
+            height: 180,
+            color: Colors.grey[200],
+            child: const Center(child: Text('Image unavailable')),
+          ),
+        );
+      }
+
+      return Image.memory(
+        base64Decode(imageValue),
+        height: 180,
+        width: double.infinity,
+        fit: BoxFit.cover,
+      );
+    } catch (_) {
+      return Container(
+        height: 180,
+        color: Colors.grey[200],
+        child: const Center(child: Text('Image unavailable')),
+      );
+    }
+  }
+
+  void _showPostImagePreview(String? imageBase64, String? imageUrl) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 360,
+          height: 520,
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+              Expanded(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: imageBase64 != null && imageBase64.isNotEmpty
+                      ? Image.memory(base64Decode(imageBase64), fit: BoxFit.contain)
+                      : (imageUrl != null && imageUrl.isNotEmpty
+                          ? Image.network(imageUrl, fit: BoxFit.contain)
+                          : const Center(child: Text('No image available'))),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

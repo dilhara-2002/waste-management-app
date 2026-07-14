@@ -5,7 +5,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:async';
+import 'dart:convert';
 import '../services/routing_service.dart';
 
 class CollectorHome extends StatefulWidget {
@@ -19,11 +21,446 @@ class _CollectorHomeState extends State<CollectorHome> {
   bool _isOnShift = false;
   Timer? _locationTimer;
   final _firestore = FirebaseFirestore.instance;
+  final ImagePicker _imagePicker = ImagePicker();
   Position? _currentPosition;
   Position? _previousPosition;
   double _currentSpeed = 0.0; // km/h
   List<LatLng>? _routePoints;
   Map<String, dynamic>? _selectedResident;
+  String? _draftImageBase64;
+  String? _draftImageName;
+  bool _isPickingImage = false;
+
+  String _dayNameFromDate(DateTime date) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[date.weekday - 1];
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  Future<void> _showScheduleEditor({Map<String, dynamic>? schedule}) async {
+    final isEditing = schedule != null;
+    final wasteController = TextEditingController(text: (schedule?['wasteType'] ?? '').toString());
+    final areaController = TextEditingController(text: (schedule?['areaName'] ?? '').toString());
+
+    DateTime selectedDate = DateTime.now();
+    final existingDate = (schedule?['date'] ?? '').toString();
+    if (existingDate.isNotEmpty) {
+      final parts = existingDate.split('-');
+      if (parts.length == 3) {
+        selectedDate = DateTime(
+          int.parse(parts[0]),
+          int.parse(parts[1]),
+          int.parse(parts[2]),
+        );
+      }
+    }
+
+    TimeOfDay selectedTime = const TimeOfDay(hour: 8, minute: 0);
+    final existingTime = (schedule?['time'] ?? '').toString();
+    if (existingTime.isNotEmpty) {
+      final match = RegExp(r'(\d{1,2}):(\d{2})').firstMatch(existingTime);
+      if (match != null) {
+        final hour = int.parse(match.group(1)!);
+        final minute = int.parse(match.group(2)!);
+        final isPm = existingTime.toLowerCase().contains('pm');
+        var hour24 = hour % 12;
+        if (isPm) {
+          hour24 += 12;
+        }
+        if (!isPm && hour == 12) {
+          hour24 = 0;
+        }
+        selectedTime = TimeOfDay(hour: hour24, minute: minute);
+      }
+    }
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(isEditing ? 'Edit schedule' : 'Add new schedule'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: wasteController,
+                    decoration: const InputDecoration(labelText: 'Waste type'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: areaController,
+                    decoration: const InputDecoration(labelText: 'Area'),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Date'),
+                    subtitle: Text(_formatDate(selectedDate)),
+                    trailing: const Icon(Icons.calendar_today_outlined),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: selectedDate,
+                        firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                      );
+                      if (picked != null) {
+                        setDialogState(() {
+                          selectedDate = picked;
+                        });
+                      }
+                    },
+                  ),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Time'),
+                    subtitle: Text(selectedTime.format(context)),
+                    trailing: const Icon(Icons.access_time),
+                    onTap: () async {
+                      final picked = await showTimePicker(context: context, initialTime: selectedTime);
+                      if (picked != null) {
+                        setDialogState(() {
+                          selectedTime = picked;
+                        });
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  final wasteType = wasteController.text.trim();
+                  final areaName = areaController.text.trim();
+                  if (wasteType.isEmpty || areaName.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please complete waste type and area.')),
+                    );
+                    return;
+                  }
+
+                  await _saveSchedule(
+                    dialogContext: context,
+                    scheduleId: schedule?['id']?.toString(),
+                    wasteType: wasteType,
+                    areaName: areaName,
+                    selectedDate: selectedDate,
+                    selectedTime: selectedTime,
+                  );
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                },
+                child: Text(isEditing ? 'Save changes' : 'Add schedule'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _saveSchedule({
+    required BuildContext dialogContext,
+    required String? scheduleId,
+    required String wasteType,
+    required String areaName,
+    required DateTime selectedDate,
+    required TimeOfDay selectedTime,
+  }) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'collector';
+    final docRef = scheduleId == null
+        ? _firestore.collection('schedules').doc()
+        : _firestore.collection('schedules').doc(scheduleId);
+
+    final data = <String, dynamic>{
+      'date': _formatDate(selectedDate),
+      'dayOfWeek': _dayNameFromDate(selectedDate),
+      'time': selectedTime.format(dialogContext),
+      'wasteType': wasteType,
+      'areaName': areaName,
+      'status': 'upcoming',
+      'createdBy': userId,
+      'updatedBy': userId,
+      'published': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (scheduleId == null) {
+      data['createdAt'] = FieldValue.serverTimestamp();
+    }
+
+    await docRef.set(data, SetOptions(merge: true));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Schedule saved to Firebase successfully')),
+    );
+  }
+
+  Future<void> _deleteSchedule(String scheduleId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete schedule'),
+        content: const Text('Remove this schedule from the resident view?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _firestore.collection('schedules').doc(scheduleId).delete();
+    }
+  }
+
+  Future<String?> _pickPostImage() async {
+    final pickedFile = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 900,
+      maxHeight: 900,
+      imageQuality: 70,
+    );
+    if (pickedFile == null) return null;
+    final bytes = await pickedFile.readAsBytes();
+    return base64Encode(bytes);
+  }
+
+  Future<void> _showPostComposer({Map<String, dynamic>? post}) async {
+    final isEditing = post != null;
+    final captionController = TextEditingController(text: (post?['caption'] ?? '').toString());
+    String? imageData = (post?['imageData'] ?? '').toString();
+    if (imageData.isEmpty) {
+      imageData = (post?['imageUrl'] ?? '').toString();
+      if (imageData.startsWith('data:image')) {
+        imageData = imageData.split('base64,').last;
+      } else if (imageData.startsWith('http')) {
+        imageData = '';
+      }
+    }
+    bool isPickingImage = false;
+
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: Text(isEditing ? 'Edit post' : 'Add new post'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: captionController,
+                    maxLines: 3,
+                    decoration: const InputDecoration(labelText: 'Caption'),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: isPickingImage
+                        ? null
+                        : () async {
+                            setDialogState(() => isPickingImage = true);
+                            try {
+                              final pickedBase64 = await _pickPostImage();
+                              if (pickedBase64 != null && mounted) {
+                                setDialogState(() {
+                                  imageData = pickedBase64;
+                                  isPickingImage = false;
+                                });
+                              } else {
+                                setDialogState(() => isPickingImage = false);
+                              }
+                            } catch (e) {
+                              if (mounted) {
+                                setDialogState(() => isPickingImage = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Error picking image: $e')),
+                                );
+                              }
+                            }
+                          },
+                    icon: isPickingImage ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.photo_library_outlined),
+                    label: Text(isPickingImage ? 'Picking image...' : 'Choose image'),
+                  ),
+                  if (imageData != null && imageData!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      constraints: const BoxConstraints(maxHeight: 240),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.grey[100],
+                      ),
+                      child: GestureDetector(
+                        onTap: () => _showImagePreview(imageData, null),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.memory(
+                            base64Decode(imageData!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                height: 180,
+                                color: Colors.grey[200],
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.error_outline, color: Colors.red, size: 32),
+                                    const SizedBox(height: 8),
+                                    Text('Error loading image', style: TextStyle(color: Colors.red[700])),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Tap image to preview',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                    ),
+                  ] else if (imageData == null || imageData!.isEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      height: 140,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[100],
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.grey[300]!),
+                      ),
+                      child: const Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.image_outlined, color: Colors.grey, size: 40),
+                            SizedBox(height: 8),
+                            Text('No image selected', style: TextStyle(color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              ElevatedButton(
+                onPressed: () async {
+                  final caption = captionController.text.trim();
+                  if (caption.isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please add a caption for the post.')),
+                    );
+                    return;
+                  }
+
+                  final userId = FirebaseAuth.instance.currentUser?.uid ?? 'collector';
+                  final docRef = isEditing && post?['id'] != null
+                      ? _firestore.collection('community_posts').doc(post!['id'].toString())
+                      : _firestore.collection('community_posts').doc();
+
+                  final data = <String, dynamic>{
+                    'caption': caption,
+                    'imageData': imageData ?? '',
+                    'imageUrl': imageData != null && imageData!.isNotEmpty ? 'data:image/jpeg;base64,$imageData' : '',
+                    'author': 'Collector Team',
+                    'createdBy': userId,
+                    'updatedBy': userId,
+                    'published': true,
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  };
+                  if (!isEditing) {
+                    data['createdAt'] = FieldValue.serverTimestamp();
+                  }
+
+                  await docRef.set(data, SetOptions(merge: true));
+                  if (!mounted) return;
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Post published to Firebase successfully')),
+                  );
+                },
+                child: Text(isEditing ? 'Save changes' : 'Publish post'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _showImagePreview(String? imageBase64, String? imageUrl) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: 360,
+          height: 520,
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  icon: const Icon(Icons.close),
+                ),
+              ),
+              Expanded(
+                child: InteractiveViewer(
+                  minScale: 1,
+                  maxScale: 4,
+                  child: imageBase64 != null && imageBase64.isNotEmpty
+                      ? Image.memory(base64Decode(imageBase64), fit: BoxFit.contain, cacheWidth: 600)
+                      : (imageUrl != null && imageUrl.isNotEmpty
+                          ? Image.network(imageUrl, fit: BoxFit.contain)
+                          : const Center(child: Text('No image available'))),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deletePost(String postId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete post'),
+        content: const Text('Remove this community update from the resident feed?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      await _firestore.collection('community_posts').doc(postId).delete();
+    }
+  }
 
   @override
   void dispose() {
@@ -324,7 +761,6 @@ class _CollectorHomeState extends State<CollectorHome> {
       ),
       body: Column(
         children: [
-          // Control Panel
           Container(
             padding: const EdgeInsets.all(16),
             color: _isOnShift ? Colors.green[50] : Colors.grey[100],
@@ -344,19 +780,13 @@ class _CollectorHomeState extends State<CollectorHome> {
                         children: [
                           Text(
                             _isOnShift ? 'On Shift' : 'Off Shift',
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                           ),
                           Text(
                             _isOnShift
                                 ? 'Broadcasting location every 10 seconds'
                                 : 'Tap the button below to start your shift',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey[700],
-                            ),
+                            style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                           ),
                         ],
                       ),
@@ -381,63 +811,210 @@ class _CollectorHomeState extends State<CollectorHome> {
               ],
             ),
           ),
-
-          // Map View with Pickup Points
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _firestore
-                  .collection('users')
-                  .where('role', isEqualTo: 'resident')
-                  .snapshots(),
-              builder: (context, snapshot) {
-                List<Map<String, dynamic>> residents = [];
-                
-                if (snapshot.hasData) {
-                  residents = snapshot.data!.docs
-                      .map((doc) => doc.data() as Map<String, dynamic>)
-                      .where((data) =>
-                          data['latitude'] != null && data['longitude'] != null)
-                      .toList();
-                }
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                children: [
+                  _buildScheduleManagementCard(),
+                  const SizedBox(height: 14),
+                  _buildCommunityPostsCard(),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 280,
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
+                      builder: (context, snapshot) {
+                        List<Map<String, dynamic>> residents = [];
+                        if (snapshot.hasData) {
+                          residents = snapshot.data!.docs
+                              .map((doc) => doc.data() as Map<String, dynamic>)
+                              .where((data) => data['latitude'] != null && data['longitude'] != null)
+                              .toList();
+                        }
 
-                // Always show map even if loading or no residents
-                return Stack(
-                  children: [
-                    _buildMap(residents),
-                    if (snapshot.connectionState == ConnectionState.waiting)
-                      const Center(
-                        child: CircularProgressIndicator(),
-                      ),
-                    if (snapshot.hasData && residents.isEmpty && !_isOnShift)
-                      Center(
-                        child: Card(
-                          margin: const EdgeInsets.all(16),
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
-                                const SizedBox(height: 12),
-                                const Text(
-                                  'No pickup points yet',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        return Stack(
+                          children: [
+                            _buildMap(residents),
+                            if (snapshot.connectionState == ConnectionState.waiting)
+                              const Center(child: CircularProgressIndicator()),
+                            if (snapshot.hasData && residents.isEmpty && !_isOnShift)
+                              Center(
+                                child: Card(
+                                  margin: const EdgeInsets.all(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                                        const SizedBox(height: 12),
+                                        const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          'Residents will appear here once they set their location',
+                                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Residents will appear here once they set their location',
-                                  style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScheduleManagementCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.calendar_month, color: Colors.green, size: 24),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Edit schedule', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              IconButton(
+                onPressed: () => _showScheduleEditor(),
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Add schedule',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text('Manage the current collection plan for residents. You can add, edit, or remove entries.', style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 12),
+          StreamBuilder<QuerySnapshot>(
+            stream: _firestore.collection('schedules').orderBy('date', descending: false).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final items = snapshot.hasData
+                  ? snapshot.data!.docs.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      data['id'] = doc.id;
+                      return data;
+                    }).toList()
+                  : <Map<String, dynamic>>[];
+              if (items.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No schedules yet. Add one to show it on the resident portal.'),
+                );
+              }
+              return Column(
+                children: items.map((schedule) {
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text((schedule['wasteType'] ?? 'Schedule').toString()),
+                      subtitle: Text('${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showScheduleEditor(schedule: schedule)),
+                          IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deleteSchedule(schedule['id'].toString())),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCommunityPostsCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.post_add_outlined, color: Colors.green, size: 24),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Community posts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              IconButton(
+                onPressed: () => _showPostComposer(),
+                icon: const Icon(Icons.add_circle_outline),
+                tooltip: 'Publish post',
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text('Share photos and captions that appear in the resident home feed.', style: TextStyle(color: Colors.grey)),
+          const SizedBox(height: 12),
+          StreamBuilder<QuerySnapshot>(
+            stream: _firestore.collection('community_posts').orderBy('createdAt', descending: true).snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final posts = snapshot.hasData
+                  ? snapshot.data!.docs.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      data['id'] = doc.id;
+                      return data;
+                    }).toList()
+                  : <Map<String, dynamic>>[];
+              if (posts.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text('No posts yet. Share updates for residents to see.'),
+                );
+              }
+              return Column(
+                children: posts.map((post) {
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text((post['caption'] ?? 'Community update').toString()),
+                      subtitle: Text(
+                        (post['imageUrl'] ?? '').toString().isEmpty
+                            ? 'No image attached yet'
+                            : 'Image link ready',
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showPostComposer(post: post)),
+                          IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deletePost(post['id'].toString())),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
       ),
