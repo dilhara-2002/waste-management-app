@@ -19,6 +19,7 @@ class CollectorHome extends StatefulWidget {
 
 class _CollectorHomeState extends State<CollectorHome> {
   bool _isOnShift = false;
+  int _selectedTabIndex = 0;
   Timer? _locationTimer;
   final _firestore = FirebaseFirestore.instance;
   final ImagePicker _imagePicker = ImagePicker();
@@ -761,117 +762,143 @@ class _CollectorHomeState extends State<CollectorHome> {
       ),
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(16),
-            color: _isOnShift ? Colors.green[50] : Colors.grey[100],
+          Expanded(child: _buildSelectedTab()),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedTabIndex,
+        onTap: (index) => setState(() => _selectedTabIndex = index),
+        type: BottomNavigationBarType.fixed,
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
+          BottomNavigationBarItem(icon: Icon(Icons.edit_outlined), label: 'Edit'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedTab() {
+    if (_selectedTabIndex == 1) {
+      return SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        child: Column(
+          children: [
+            _buildScheduleManagementCard(),
+            const SizedBox(height: 14),
+            _buildCommunityPostsCard(),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          color: _isOnShift ? Colors.green[50] : Colors.grey[100],
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    _isOnShift ? Icons.check_circle : Icons.circle_outlined,
+                    color: _isOnShift ? Colors.green : Colors.grey,
+                    size: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isOnShift ? 'On Shift' : 'Off Shift',
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          _isOnShift
+                              ? 'Broadcasting location every 10 seconds'
+                              : 'Tap the button below to start your shift',
+                          style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: _toggleShift,
+                  icon: Icon(_isOnShift ? Icons.stop : Icons.play_arrow),
+                  label: Text(_isOnShift ? 'Stop Shift' : 'Start Shift'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isOnShift ? Colors.red : Colors.green,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    textStyle: const TextStyle(fontSize: 18),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             child: Column(
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      _isOnShift ? Icons.check_circle : Icons.circle_outlined,
-                      color: _isOnShift ? Colors.green : Colors.grey,
-                      size: 32,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _isOnShift ? 'On Shift' : 'Off Shift',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                          Text(
-                            _isOnShift
-                                ? 'Broadcasting location every 10 seconds'
-                                : 'Tap the button below to start your shift',
-                            style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
                 SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: _toggleShift,
-                    icon: Icon(_isOnShift ? Icons.stop : Icons.play_arrow),
-                    label: Text(_isOnShift ? 'Stop Shift' : 'Start Shift'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: _isOnShift ? Colors.red : Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      textStyle: const TextStyle(fontSize: 18),
-                    ),
+                  height: 280,
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
+                    builder: (context, snapshot) {
+                      List<Map<String, dynamic>> residents = [];
+                      if (snapshot.hasData) {
+                        residents = snapshot.data!.docs
+                            .map((doc) => doc.data() as Map<String, dynamic>)
+                            .where((data) => data['latitude'] != null && data['longitude'] != null)
+                            .toList();
+                      }
+
+                      return Stack(
+                        children: [
+                          _buildMap(residents),
+                          if (snapshot.connectionState == ConnectionState.waiting)
+                            const Center(child: CircularProgressIndicator()),
+                          if (snapshot.hasData && residents.isEmpty && !_isOnShift)
+                            Center(
+                              child: Card(
+                                margin: const EdgeInsets.all(16),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                                      const SizedBox(height: 12),
+                                      const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'Residents will appear here once they set their location',
+                                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ],
             ),
           ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: Column(
-                children: [
-                  _buildScheduleManagementCard(),
-                  const SizedBox(height: 14),
-                  _buildCommunityPostsCard(),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    height: 280,
-                    child: StreamBuilder<QuerySnapshot>(
-                      stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
-                      builder: (context, snapshot) {
-                        List<Map<String, dynamic>> residents = [];
-                        if (snapshot.hasData) {
-                          residents = snapshot.data!.docs
-                              .map((doc) => doc.data() as Map<String, dynamic>)
-                              .where((data) => data['latitude'] != null && data['longitude'] != null)
-                              .toList();
-                        }
-
-                        return Stack(
-                          children: [
-                            _buildMap(residents),
-                            if (snapshot.connectionState == ConnectionState.waiting)
-                              const Center(child: CircularProgressIndicator()),
-                            if (snapshot.hasData && residents.isEmpty && !_isOnShift)
-                              Center(
-                                child: Card(
-                                  margin: const EdgeInsets.all(16),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(16),
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
-                                        const SizedBox(height: 12),
-                                        const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          'Residents will appear here once they set their location',
-                                          style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        );
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -902,6 +929,11 @@ class _CollectorHomeState extends State<CollectorHome> {
           const SizedBox(height: 8),
           const Text('Manage the current collection plan for residents. You can add, edit, or remove entries.', style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 12),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: Text('Existing schedules', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 12),
           StreamBuilder<QuerySnapshot>(
             stream: _firestore.collection('schedules').orderBy('date', descending: false).snapshots(),
             builder: (context, snapshot) {
@@ -916,9 +948,71 @@ class _CollectorHomeState extends State<CollectorHome> {
                     }).toList()
                   : <Map<String, dynamic>>[];
               if (items.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('No schedules yet. Add one to show it on the resident portal.'),
+                final exampleSchedules = [
+                  {
+                    'wasteType': 'Recyclables',
+                    'dayOfWeek': 'Monday',
+                    'date': '2026-07-21',
+                    'time': '09:00 AM',
+                    'areaName': 'Downtown Zone',
+                  },
+                  {
+                    'wasteType': 'Organic waste',
+                    'dayOfWeek': 'Wednesday',
+                    'date': '2026-07-23',
+                    'time': '10:30 AM',
+                    'areaName': 'Maple Street',
+                  },
+                  {
+                    'wasteType': 'General waste',
+                    'dayOfWeek': 'Friday',
+                    'date': '2026-07-25',
+                    'time': '08:00 AM',
+                    'areaName': 'Lakeview District',
+                  },
+                ];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No schedules yet. Add one to show it on the resident portal.',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 16),
+                      child: Text(
+                        'Example schedules are shown below for guidance. Tap the + button to create your own schedule.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                    ...exampleSchedules.map((schedule) {
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        color: Colors.grey[50],
+                        child: ListTile(
+                          title: Text((schedule['wasteType'] ?? 'Schedule').toString()),
+                          subtitle: Text('${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}'),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined),
+                                tooltip: 'Edit example',
+                                onPressed: () => _showScheduleEditor(schedule: schedule),
+                              ),
+                              const Padding(
+                                padding: EdgeInsets.only(right: 8.0),
+                                child: Text('Example', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
                 );
               }
               return Column(
