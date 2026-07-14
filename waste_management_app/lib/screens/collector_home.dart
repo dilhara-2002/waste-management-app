@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/routing_service.dart';
+import '../utils/area_options.dart';
 
 class CollectorHome extends StatefulWidget {
   const CollectorHome({super.key});
@@ -31,6 +32,70 @@ class _CollectorHomeState extends State<CollectorHome> {
   String? _draftImageBase64;
   String? _draftImageName;
   bool _isPickingImage = false;
+  bool _isSeedingSchedules = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _seedDefaultSchedulesIfEmpty();
+  }
+
+  Future<void> _seedDefaultSchedulesIfEmpty() async {
+    if (_isSeedingSchedules) return;
+    _isSeedingSchedules = true;
+    try {
+      final snapshot = await _firestore.collection('schedules').limit(1).get();
+      if (snapshot.docs.isNotEmpty) return;
+
+      final now = DateTime.now();
+      final defaults = [
+        {
+          'wasteType': 'Recyclables',
+          'areaCode': 'A01',
+          'date': _formatDate(now.add(const Duration(days: 1))),
+        },
+        {
+          'wasteType': 'Organic waste',
+          'areaCode': 'A02',
+          'date': _formatDate(now.add(const Duration(days: 3))),
+        },
+        {
+          'wasteType': 'General waste',
+          'areaCode': 'A03',
+          'date': _formatDate(now.add(const Duration(days: 5))),
+        },
+      ];
+
+      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'collector_seed';
+      final batch = _firestore.batch();
+      for (final entry in defaults) {
+        final parsedDate = DateTime.parse(entry['date']!.toString());
+        final docRef = _firestore.collection('schedules').doc();
+        batch.set(docRef, {
+          'date': entry['date'],
+          'dayOfWeek': _dayNameFromDate(parsedDate),
+          'time': '09:00 AM',
+          'wasteType': entry['wasteType'],
+          'areaCode': entry['areaCode'],
+          'areaName': entry['areaCode'],
+          'status': 'upcoming',
+          'createdBy': userId,
+          'updatedBy': userId,
+          'published': true,
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (_) {
+      // Keep screen usable even if initial seed fails.
+    } finally {
+      _isSeedingSchedules = false;
+    }
+  }
 
   String _dayNameFromDate(DateTime date) {
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -44,7 +109,10 @@ class _CollectorHomeState extends State<CollectorHome> {
   Future<void> _showScheduleEditor({Map<String, dynamic>? schedule}) async {
     final isEditing = schedule != null;
     final wasteController = TextEditingController(text: (schedule?['wasteType'] ?? '').toString());
-    final areaController = TextEditingController(text: (schedule?['areaName'] ?? '').toString());
+    String selectedAreaCode = (schedule?['areaCode'] ?? schedule?['areaName'] ?? '').toString().trim();
+    if (!kAreaCodes.contains(selectedAreaCode)) {
+      selectedAreaCode = kAreaCodes.first;
+    }
 
     DateTime selectedDate = DateTime.now();
     final existingDate = (schedule?['date'] ?? '').toString();
@@ -94,9 +162,21 @@ class _CollectorHomeState extends State<CollectorHome> {
                     decoration: const InputDecoration(labelText: 'Waste type'),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: areaController,
+                  DropdownButtonFormField<String>(
+                    value: selectedAreaCode,
                     decoration: const InputDecoration(labelText: 'Area'),
+                    items: kAreaCodes
+                        .map((area) => DropdownMenuItem<String>(
+                              value: area,
+                              child: Text(area),
+                            ))
+                        .toList(),
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setDialogState(() {
+                        selectedAreaCode = value;
+                      });
+                    },
                   ),
                   const SizedBox(height: 12),
                   ListTile(
@@ -140,8 +220,7 @@ class _CollectorHomeState extends State<CollectorHome> {
               ElevatedButton(
                 onPressed: () async {
                   final wasteType = wasteController.text.trim();
-                  final areaName = areaController.text.trim();
-                  if (wasteType.isEmpty || areaName.isEmpty) {
+                  if (wasteType.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Please complete waste type and area.')),
                     );
@@ -152,7 +231,7 @@ class _CollectorHomeState extends State<CollectorHome> {
                     dialogContext: context,
                     scheduleId: schedule?['id']?.toString(),
                     wasteType: wasteType,
-                    areaName: areaName,
+                    areaCode: selectedAreaCode,
                     selectedDate: selectedDate,
                     selectedTime: selectedTime,
                   );
@@ -172,7 +251,7 @@ class _CollectorHomeState extends State<CollectorHome> {
     required BuildContext dialogContext,
     required String? scheduleId,
     required String wasteType,
-    required String areaName,
+    required String areaCode,
     required DateTime selectedDate,
     required TimeOfDay selectedTime,
   }) async {
@@ -186,7 +265,8 @@ class _CollectorHomeState extends State<CollectorHome> {
       'dayOfWeek': _dayNameFromDate(selectedDate),
       'time': selectedTime.format(dialogContext),
       'wasteType': wasteType,
-      'areaName': areaName,
+      'areaCode': areaCode,
+      'areaName': areaCode,
       'status': 'upcoming',
       'createdBy': userId,
       'updatedBy': userId,
@@ -200,6 +280,7 @@ class _CollectorHomeState extends State<CollectorHome> {
 
     await docRef.set(data, SetOptions(merge: true));
     if (!mounted) return;
+    setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Schedule saved to Firebase successfully')),
     );
@@ -948,66 +1029,51 @@ class _CollectorHomeState extends State<CollectorHome> {
                     }).toList()
                   : <Map<String, dynamic>>[];
               if (items.isEmpty) {
-                final exampleSchedules = [
+                final today = DateTime.now();
+                final starterSchedules = [
                   {
                     'wasteType': 'Recyclables',
-                    'dayOfWeek': 'Monday',
-                    'date': '2026-07-21',
+                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 1))),
+                    'date': _formatDate(today.add(const Duration(days: 1))),
                     'time': '09:00 AM',
-                    'areaName': 'Downtown Zone',
+                    'areaName': 'A01',
                   },
                   {
                     'wasteType': 'Organic waste',
-                    'dayOfWeek': 'Wednesday',
-                    'date': '2026-07-23',
+                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 3))),
+                    'date': _formatDate(today.add(const Duration(days: 3))),
                     'time': '10:30 AM',
-                    'areaName': 'Maple Street',
+                    'areaName': 'A02',
                   },
                   {
                     'wasteType': 'General waste',
-                    'dayOfWeek': 'Friday',
-                    'date': '2026-07-25',
+                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 5))),
+                    'date': _formatDate(today.add(const Duration(days: 5))),
                     'time': '08:00 AM',
-                    'areaName': 'Lakeview District',
+                    'areaName': 'A03',
                   },
                 ];
+
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 12),
+                      padding: EdgeInsets.only(bottom: 12),
                       child: Text(
-                        'No schedules yet. Add one to show it on the resident portal.',
+                        'Starter schedules are shown below. Tap + to add and save your own schedules.',
                         style: TextStyle(fontWeight: FontWeight.bold),
                       ),
                     ),
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        'Example schedules are shown below for guidance. Tap the + button to create your own schedule.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                    ...exampleSchedules.map((schedule) {
+                    ...starterSchedules.map((schedule) {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
-                        color: Colors.grey[50],
                         child: ListTile(
                           title: Text((schedule['wasteType'] ?? 'Schedule').toString()),
                           subtitle: Text('${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined),
-                                tooltip: 'Edit example',
-                                onPressed: () => _showScheduleEditor(schedule: schedule),
-                              ),
-                              const Padding(
-                                padding: EdgeInsets.only(right: 8.0),
-                                child: Text('Example', style: TextStyle(color: Colors.grey, fontSize: 12)),
-                              ),
-                            ],
+                          trailing: IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Edit schedule',
+                            onPressed: () => _showScheduleEditor(schedule: schedule),
                           ),
                         ),
                       );

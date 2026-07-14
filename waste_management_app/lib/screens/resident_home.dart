@@ -329,6 +329,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                   ),
                 ),
                 ListTile(
+                  leading: const Icon(Icons.map_outlined),
+                  title: const Text('Area code'),
+                  subtitle: Text((_userData?['areaCode'] ?? 'Not set').toString()),
+                ),
+                ListTile(
                   leading: const Icon(Icons.lock_outline),
                   title: const Text('Password'),
                   subtitle: const Text('Change or reset your password'),
@@ -1643,6 +1648,7 @@ class _ResidentHomeState extends State<ResidentHome> {
         }
 
         final schedules = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
+        final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
         final sourceSchedules = schedules
             .map((doc) => doc.data() as Map<String, dynamic>)
             .toList();
@@ -1656,6 +1662,11 @@ class _ResidentHomeState extends State<ResidentHome> {
 
         final selectedDayName = _weekdayLongName(_selectedScheduleDayIndex);
         final filteredSchedules = sourceSchedules.where((schedule) {
+          final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
+          final areaMatches = residentAreaCode.isEmpty ||
+              scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
+          if (!areaMatches) return false;
+
           final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
           final status = _scheduleStatus(schedule, dayOfWeek);
 
@@ -1827,6 +1838,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   Widget _buildNoSchedulesCard() {
+    final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
+    final areaHint = residentAreaCode.isNotEmpty ? ' for $residentAreaCode' : '';
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 6),
@@ -1849,7 +1862,7 @@ class _ResidentHomeState extends State<ResidentHome> {
           ),
           const SizedBox(height: 4),
           Text(
-            'Try another day or filter',
+            'Try another day or filter$areaHint',
             style: TextStyle(color: Colors.blueGrey.shade300),
           ),
         ],

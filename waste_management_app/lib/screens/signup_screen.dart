@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../utils/area_options.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
@@ -21,6 +22,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   String _role = 'resident';
+  String _selectedAreaCode = kAreaCodes.first;
 
   @override
   void didChangeDependencies() {
@@ -62,6 +64,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
           'email': _emailController.text.trim(),
           'role': _role,
           'address': _addressController.text.trim(),
+          'areaCode': _role == 'resident' ? _selectedAreaCode : '',
           'createdAt': FieldValue.serverTimestamp(),
         });
 
@@ -279,6 +282,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       return null;
                     },
                   ),
+                  if (_role == 'resident') ...[
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      value: _selectedAreaCode,
+                      decoration: InputDecoration(
+                        labelText: 'Area code',
+                        prefixIcon: const Icon(Icons.map_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      items: kAreaCodes
+                          .map((area) => DropdownMenuItem<String>(
+                                value: area,
+                                child: Text(area),
+                              ))
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _selectedAreaCode = value;
+                        });
+                      },
+                    ),
+                  ],
                   const SizedBox(height: 24),
 
                   // Sign Up button

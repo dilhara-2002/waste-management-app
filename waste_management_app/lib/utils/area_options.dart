@@ -1,0 +1,7 @@
+const List<String> kAreaCodes = [
+  'A01',
+  'A02',
+  'A03',
+  'A04',
+  'A05',
+];
