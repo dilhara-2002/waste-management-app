@@ -12,6 +12,64 @@ class SegregationGuide extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Resident Guidelines: clear, action-oriented guidance for residents
+          Card(
+            color: Colors.green[50],
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.home, size: 36, color: Colors.green[700]),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Resident Guidelines',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green[900],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Practical steps every resident can take to segregate and recycle waste effectively:',
+                    style: TextStyle(color: Colors.green[900]),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildTipItem('Separate at source: use separate bags/bins for organics, recyclables, and general waste.'),
+                  _buildTipItem('Clean & dry: rinse food residue from cans, bottles and containers before recycling.'),
+                  _buildTipItem('Flatten cardboard and remove inserts to save space and improve processing.'),
+                  _buildTipItem('Keep hazardous and sharp items (batteries, needles, chemicals) out of household bins — take them to designated collection points.'),
+                  _buildTipItem('E-waste: take old electronics to e-waste collection events or drop-off centers.'),
+                  _buildTipItem('Compost food scraps and small yard waste at home or use community composting where available.'),
+                  _buildTipItem('Bulk items (furniture, mattresses): schedule a special pickup or bring them to the municipal depot.'),
+                  const SizedBox(height: 8),
+                  Text(
+                    'How to recycle correctly:',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[900]),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTipItem('Paper: keep dry and free of food — no greasy pizza boxes.'),
+                  _buildTipItem('Plastics: check the recycling number; rinse bottles and remove lids when instructed.'),
+                  _buildTipItem('Glass: sort clear/colored when required; wrap broken glass before disposal.'),
+                  _buildTipItem('Metals: empty and rinse cans; remove food residue.'),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Reduce & Reuse suggestions:',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.green[900]),
+                  ),
+                  const SizedBox(height: 8),
+                  _buildTipItem('Refuse single-use items when possible; carry a reusable bag and bottle.'),
+                  _buildTipItem('Repair and donate usable items instead of throwing them away.'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
           // Header
           Card(
             color: Colors.green[50],
