@@ -108,7 +108,7 @@ class _ResidentHomeState extends State<ResidentHome> {
             debugPrint('⏰ Truck location too old (${age.inHours} hours), hiding');
             if (age.inHours > 1) {
               // Cleanup stale document
-              docRef.delete();
+              // Only collectors may remove a truck location when ending a shift.
               debugPrint('🗑️ Deleted stale truck location');
             }
           }
