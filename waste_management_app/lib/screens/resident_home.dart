@@ -17,6 +17,7 @@ class ResidentHome extends StatefulWidget {
 }
 
 class _ResidentHomeState extends State<ResidentHome> {
+  final _mapController = MapController();
   int _currentIndex = 0;
   int _scheduleFilterIndex = 1; // 0: All, 1: Upcoming, 2: Completed, 3: Missed
   int _selectedScheduleDayIndex = DateTime.now().weekday - 1;
@@ -47,6 +48,11 @@ class _ResidentHomeState extends State<ResidentHome> {
         setState(() {
           _userData = doc.data();
         });
+        if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
+          final lat = _userData!['latitude'] as double;
+          final lon = _userData!['longitude'] as double;
+          _mapController.move(LatLng(lat, lon), 15.0);
+        }
         _fetchRoute(); // Fetch route when user data loads
       }
     }
@@ -242,7 +248,6 @@ class _ResidentHomeState extends State<ResidentHome> {
       debugPrint('🔄 Getting current GPS location...');
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        forceAndroidLocationManager: true,
         timeLimit: const Duration(seconds: 15),
       );
       
@@ -266,6 +271,7 @@ class _ResidentHomeState extends State<ResidentHome> {
         });
 
         await _loadUserData();
+        _mapController.move(confirmedPosition, 15.0);
         _fetchRoute(); // Fetch route after setting location
 
         if (mounted) {
@@ -1510,31 +1516,52 @@ class _ResidentHomeState extends State<ResidentHome> {
       );
     }
 
-    return FlutterMap(
-      options: MapOptions(
-        center: centerPosition,
-        zoom: 15.0,
-        minZoom: 5.0,
-        maxZoom: 18.0,
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.waste_management_app',
-          maxZoom: 19,
-        ),
-        // Route polyline if available
-        if (_routePoints != null && _routePoints!.isNotEmpty)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: _routePoints!,
-                strokeWidth: 4.0,
-                color: Colors.blue.withOpacity(0.7),
-              ),
-            ],
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            center: centerPosition,
+            zoom: 15.0,
+            minZoom: 5.0,
+            maxZoom: 18.0,
           ),
-        MarkerLayer(markers: markers),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.waste_management_app',
+              maxZoom: 19,
+            ),
+            // Route polyline if available
+            if (_routePoints != null && _routePoints!.isNotEmpty)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints!,
+                    strokeWidth: 4.0,
+                    color: Colors.blue.withOpacity(0.7),
+                  ),
+                ],
+              ),
+            MarkerLayer(markers: markers),
+          ],
+        ),
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'recenter_resident_map',
+            onPressed: () {
+              if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
+                final lat = _userData!['latitude'] as double;
+                final lon = _userData!['longitude'] as double;
+                _mapController.move(LatLng(lat, lon), 15.0);
+              }
+            },
+            backgroundColor: Colors.white,
+            child: const Icon(Icons.my_location, color: Colors.green),
+          ),
+        ),
       ],
     );
   }
@@ -2138,6 +2165,7 @@ class _LocationPickerDialog extends StatefulWidget {
 class _LocationPickerDialogState extends State<_LocationPickerDialog> {
   late LatLng _selectedPosition;
   bool _manuallyAdjusted = false;
+  final MapController _dialogMapController = MapController();
 
   @override
   void initState() {
@@ -2205,6 +2233,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
             const SizedBox(height: 16),
             Expanded(
               child: FlutterMap(
+                mapController: _dialogMapController,
                 options: MapOptions(
                   center: _selectedPosition,
                   zoom: 17.0,
@@ -2213,6 +2242,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                       _selectedPosition = point;
                       _manuallyAdjusted = true;
                     });
+                    _dialogMapController.move(point, 17.0);
                   },
                 ),
                 children: [
@@ -2295,6 +2325,7 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                           _selectedPosition = widget.gpsPosition;
                           _manuallyAdjusted = false;
                         });
+                        _dialogMapController.move(widget.gpsPosition, 17.0);
                       },
                       icon: const Icon(Icons.refresh),
                       label: const Text('Reset to GPS'),

@@ -10,12 +10,20 @@ import 'screens/login_screen.dart';
 import 'screens/resident_home.dart';
 import 'screens/collector_home.dart';
 
+import 'package:flutter/foundation.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+  if (kIsWeb) {
+    // Disable Firestore IndexedDB persistence on Web to prevent Firebase JS SDK
+    // internal assertion crashes (known issue in firebase-firestore.js 11.x)
+    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: false);
+  } else {
+    FirebaseFirestore.instance.settings = const Settings(persistenceEnabled: true);
+  }
   runApp(const MyApp());
 }
 

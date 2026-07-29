@@ -57,16 +57,27 @@ class _SignUpScreenState extends State<SignUpScreen> {
       );
 
       if (credential.user != null) {
-        // Create user document in Firestore
+        // Create user document in Firestore with retry
         final userDocRef = _firestore.collection('users').doc(credential.user!.uid);
-        await userDocRef.set({
-          'uid': credential.user!.uid,
-          'email': _emailController.text.trim(),
-          'role': _role,
-          'address': _addressController.text.trim(),
-          'areaCode': _role == 'resident' ? _selectedAreaCode : '',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        Exception? lastError;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+          try {
+            await userDocRef.set({
+              'uid': credential.user!.uid,
+              'email': _emailController.text.trim(),
+              'role': _role,
+              'address': _addressController.text.trim(),
+              'areaCode': _role == 'resident' ? _selectedAreaCode : '',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
+            lastError = null;
+            break;
+          } catch (e) {
+            lastError = Exception(e.toString());
+            if (attempt < 3) await Future.delayed(const Duration(milliseconds: 800));
+          }
+        }
+        if (lastError != null) throw lastError;
 
         if (mounted) {
           _showSnackBar('Account created successfully! Redirecting...');

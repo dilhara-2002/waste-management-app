@@ -70,32 +70,40 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Future<void> _navigateBasedOnRole(String uid) async {
-    try {
-      final userDoc = await _firestore.collection('users').doc(uid).get();
+    // Retry up to 3 times with a small delay to handle transient Web SDK errors
+    for (int attempt = 1; attempt <= 3; attempt++) {
+      try {
+        final userDoc = await _firestore.collection('users').doc(uid).get();
 
-      if (!userDoc.exists) {
-        _showSnackBar('User profile not found', isError: true);
-        await _auth.signOut();
-        return;
+        if (!userDoc.exists) {
+          _showSnackBar('User profile not found', isError: true);
+          await _auth.signOut();
+          return;
+        }
+
+        final role = userDoc.data()?['role'] as String?;
+
+        if (!mounted) return;
+
+        if (role == 'resident') {
+          Navigator.pushReplacementNamed(context, '/resident');
+        } else if (role == 'collector') {
+          Navigator.pushReplacementNamed(context, '/collector');
+        } else if (role == null || role.isEmpty) {
+          _showSnackBar('Your account exists, but your role is not set. Please register again or contact support.', isError: true);
+          await _auth.signOut();
+        } else {
+          _showSnackBar('Invalid user role: $role', isError: true);
+          await _auth.signOut();
+        }
+        return; // success – exit loop
+      } catch (e) {
+        if (attempt == 3) {
+          _showSnackBar('Error loading profile: $e', isError: true);
+        } else {
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
       }
-
-      final role = userDoc.data()?['role'] as String?;
-
-      if (!mounted) return;
-
-      if (role == 'resident') {
-        Navigator.pushReplacementNamed(context, '/resident');
-      } else if (role == 'collector') {
-        Navigator.pushReplacementNamed(context, '/collector');
-      } else if (role == null || role.isEmpty) {
-        _showSnackBar('Your account exists, but your role is not set. Please register again or contact support.', isError: true);
-        await _auth.signOut();
-      } else {
-        _showSnackBar('Invalid user role: $role', isError: true);
-        await _auth.signOut();
-      }
-    } catch (e) {
-      _showSnackBar('Error loading profile: $e', isError: true);
     }
   }
 

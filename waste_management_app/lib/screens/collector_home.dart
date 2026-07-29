@@ -19,6 +19,7 @@ class CollectorHome extends StatefulWidget {
 }
 
 class _CollectorHomeState extends State<CollectorHome> {
+  final _mapController = MapController();
   bool _isOnShift = false;
   int _selectedTabIndex = 0;
   Timer? _locationTimer;
@@ -622,6 +623,7 @@ class _CollectorHomeState extends State<CollectorHome> {
             _currentPosition = position;
             _currentSpeed = speed;
           });
+          _mapController.move(LatLng(position.latitude, position.longitude), 14.0);
 
           await _firestore.collection('truck_locations').doc('truck_1').set({
             'latitude': position.latitude,
@@ -641,7 +643,6 @@ class _CollectorHomeState extends State<CollectorHome> {
       debugPrint('🔄 Getting initial GPS location...');
       Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        forceAndroidLocationManager: true,
         timeLimit: const Duration(seconds: 15), // Longer timeout for first fix
       );
       setState(() {
@@ -649,6 +650,7 @@ class _CollectorHomeState extends State<CollectorHome> {
         _previousPosition = position;
         _currentSpeed = 0.0;
       });
+      _mapController.move(LatLng(position.latitude, position.longitude), 14.0);
       
       debugPrint('✅ Initial GPS fix: ${position.latitude}, ${position.longitude}, Accuracy: ${position.accuracy.toStringAsFixed(1)}m');
       
@@ -1264,31 +1266,53 @@ class _CollectorHomeState extends State<CollectorHome> {
       );
     }
 
-    return FlutterMap(
-      options: MapOptions(
-        center: center,
-        zoom: 14.0,
-        minZoom: 5.0,
-        maxZoom: 18.0,
-      ),
+    return Stack(
       children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.waste_management_app',
-          maxZoom: 19,
-        ),
-        // Route polyline if available
-        if (_routePoints != null && _routePoints!.isNotEmpty)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: _routePoints!,
-                strokeWidth: 4.0,
-                color: Colors.blue,
-              ),
-            ],
+        FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            center: center,
+            zoom: 14.0,
+            minZoom: 5.0,
+            maxZoom: 18.0,
           ),
-        MarkerLayer(markers: markers),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.waste_management_app',
+              maxZoom: 19,
+            ),
+            // Route polyline if available
+            if (_routePoints != null && _routePoints!.isNotEmpty)
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: _routePoints!,
+                    strokeWidth: 4.0,
+                    color: Colors.blue,
+                  ),
+                ],
+              ),
+            MarkerLayer(markers: markers),
+          ],
+        ),
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton.small(
+            heroTag: 'recenter_collector_map',
+            onPressed: () {
+              if (_currentPosition != null) {
+                _mapController.move(
+                  LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                  14.0,
+                );
+              }
+            },
+            backgroundColor: Colors.white,
+            child: const Icon(Icons.my_location, color: Colors.blue),
+          ),
+        ),
       ],
     );
   }
