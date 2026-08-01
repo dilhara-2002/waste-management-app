@@ -32,6 +32,9 @@ class _ResidentHomeState extends State<ResidentHome> {
   String _selectedIssueType = 'Missed Pickup';
   String _reportDescription = '';
   String _feedbackMessage = '';
+  // Cached community posts to prevent blinking on Firestore real-time updates
+  List<Map<String, dynamic>>? _communityPosts;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -460,13 +463,49 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
+  // Manual refresh: re-fetches posts from Firestore and updates the cache
+  Future<void> _refreshPosts() async {
+    if (_isRefreshing) return;
+    setState(() => _isRefreshing = true);
+    try {
+      final snap = await _firestore
+          .collection('community_posts')
+          .where('published', isEqualTo: true)
+          .get();
+      if (mounted) {
+        setState(() {
+          _communityPosts = snap.docs
+              .map((doc) => doc.data())
+              .toList()
+            ..sort((a, b) {
+              final aTs = a['createdAt'];
+              final bTs = b['createdAt'];
+              if (aTs == null && bTs == null) return 0;
+              if (aTs == null) return 1;
+              if (bTs == null) return -1;
+              return (bTs as Timestamp).compareTo(aTs as Timestamp);
+            });
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _communityPosts ??= []);
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
   // HOME tab: upcoming collection card + quick actions + tips
   Widget _buildHomeTab() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return RefreshIndicator(
+      onRefresh: _refreshPosts,
+      color: Colors.green[700],
+      child: SingleChildScrollView(
+        // physics must allow overscroll so RefreshIndicator triggers
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Quick actions row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -507,67 +546,107 @@ class _ResidentHomeState extends State<ResidentHome> {
           const Text('Community Updates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
           StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('community_posts').where('published', isEqualTo: true).orderBy('createdAt', descending: true).snapshots(),
+            // Query only on a single field (no composite index needed) —
+            // sorting is done client-side to avoid Android index requirement.
+            stream: _firestore
+                .collection('community_posts')
+                .where('published', isEqualTo: true)
+                .snapshots(),
             builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
+              // Update cached posts when new data arrives (prevents blinking on updates)
+              if (snapshot.hasData) {
+                final sorted = snapshot.data!.docs
+                    .map((doc) => doc.data() as Map<String, dynamic>)
+                    .toList()
+                  ..sort((a, b) {
+                    final aTs = a['createdAt'];
+                    final bTs = b['createdAt'];
+                    if (aTs == null && bTs == null) return 0;
+                    if (aTs == null) return 1;
+                    if (bTs == null) return -1;
+                    return (bTs as Timestamp).compareTo(aTs as Timestamp);
+                  });
+                _communityPosts = sorted;
+              } else if (snapshot.connectionState != ConnectionState.waiting) {
+                // Firestore responded but no data (empty result or error) —
+                // treat as empty list so we never spin forever
+                _communityPosts ??= [];
+              }
+
+              // Show spinner only while waiting for the very first response
+              if (_communityPosts == null) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Center(child: CircularProgressIndicator()),
                 );
               }
-              final posts = snapshot.hasData
-                  ? snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList()
-                  : <Map<String, dynamic>>[];
+
+              final posts = _communityPosts!;
+
               if (posts.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Text('No community posts yet. Collector updates will appear here.'),
                 );
               }
-              return ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: posts.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  final post = posts[index];
-                  final caption = (post['caption'] ?? 'Community update').toString();
-                  final imageUrl = (post['imageUrl'] ?? '').toString();
-                  return Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+
+              // Use Column instead of ListView so the parent SingleChildScrollView
+              // handles all scrolling — allows scrolling up to see all posts
+              return Column(
+                children: [
+                  for (int index = 0; index < posts.length; index++) ...[
+                    if (index > 0) const SizedBox(height: 10),
+                    Builder(builder: (context) {
+                      final post = posts[index];
+                      final caption = (post['caption'] ?? 'Community update').toString();
+                      final imageUrl = (post['imageUrl'] ?? '').toString();
+                      return Card(
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const CircleAvatar(radius: 18, backgroundColor: Colors.green, child: Icon(Icons.people, color: Colors.white, size: 18)),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text((post['author'] ?? 'Collector Team').toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
-                                    Text('Community update', style: TextStyle(color: Colors.grey.shade600, fontSize: 12)),
-                                  ],
-                                ),
+                              Row(
+                                children: [
+                                  const CircleAvatar(
+                                    radius: 18,
+                                    backgroundColor: Colors.green,
+                                    child: Icon(Icons.people, color: Colors.white, size: 18),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          (post['author'] ?? 'Collector Team').toString(),
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          'Community update',
+                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
+                              const SizedBox(height: 10),
+                              if (imageUrl.isNotEmpty)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: _buildPostImage(imageUrl),
+                                ),
+                              const SizedBox(height: 10),
+                              Text(caption, style: const TextStyle(fontSize: 14)),
                             ],
                           ),
-                          const SizedBox(height: 10),
-                          if (imageUrl.isNotEmpty)
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(12),
-                              child: _buildPostImage(imageUrl),
-                            ),
-                          const SizedBox(height: 10),
-                          Text(caption, style: const TextStyle(fontSize: 14)),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                        ),
+                      );
+                    }),
+                  ],
+                ],
               );
             },
           ),
@@ -588,6 +667,7 @@ class _ResidentHomeState extends State<ResidentHome> {
             ),
           ),
         ],
+        ),
       ),
     );
   }
@@ -1185,16 +1265,7 @@ class _ResidentHomeState extends State<ResidentHome> {
 
   // ALERTS / Notifications tab
   Widget _buildAlertsTab() {
-    // Notifications screen with filter chips
-    final filters = ['All', 'Reminders', 'Updates', 'Alerts'];
-
-    Future<void> _markAllRead(QuerySnapshot snapshot) async {
-      final batch = _firestore.batch();
-      for (var doc in snapshot.docs) {
-        batch.update(doc.reference, {'read': true});
-      }
-      await batch.commit();
-    }
+    final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
 
     return Column(
       children: [
@@ -1205,182 +1276,177 @@ class _ResidentHomeState extends State<ResidentHome> {
               const Expanded(
                 child: Text('Notifications', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
               ),
-              TextButton.icon(
-                onPressed: () async {
-                  final snap = await _firestore.collection('notifications').get();
-                  await _markAllRead(snap);
-                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Marked all read')));
-                },
-                icon: const Icon(Icons.check, color: Colors.green),
-                label: const Text('Mark all read', style: TextStyle(color: Colors.green)),
-              ),
-            ],
-          ),
-        ),
-
-        // Filter chips
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: List.generate(filters.length, (i) {
-              final selected = i == _notificationFilterIndex;
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: ChoiceChip(
-                  label: Text(filters[i]),
-                  selected: selected,
-                  onSelected: (_) {
-                    setState(() {
-                      _notificationFilterIndex = i;
-                    });
-                  },
-                  selectedColor: Colors.green[400],
-                  backgroundColor: Colors.grey[200],
-                  labelStyle: TextStyle(color: selected ? Colors.white : Colors.black),
+              if (residentAreaCode.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.green.shade200),
+                  ),
+                  child: Text(
+                    'Area: $residentAreaCode',
+                    style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
                 ),
-              );
-            }),
+            ],
           ),
         ),
 
         const Divider(height: 1),
 
-        // Notifications list
+        // Notifications list filtered by resident's area code
         Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('notifications').orderBy('createdAt', descending: true).snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-
-              // Sample notifications for demonstration
-              final sampleNotifications = [
-                {
-                  'title': 'Waste Collection Tomorrow',
-                  'body': 'Your weekly waste collection is scheduled for tomorrow at 8:00 AM. Please have your bins ready.',
-                  'type': 'reminder',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 2))),
-                },
-                {
-                  'title': 'System Update',
-                  'body': 'The waste management app has been updated with new features. Restart the app to see the changes.',
-                  'type': 'update',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 5))),
-                },
-                {
-                  'title': 'Improper Waste Disposal Alert',
-                  'body': 'A nearby resident improperly disposed of hazardous waste. Please be cautious and report similar incidents.',
-                  'type': 'alert',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 1))),
-                },
-                {
-                  'title': 'Truck Arriving Soon',
-                  'body': 'Collection truck is 10 minutes away from your location.',
-                  'type': 'reminder',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(hours: 12))),
-                },
-                {
-                  'title': 'Segregation Guidelines Updated',
-                  'body': 'New items have been added to the segregation guide. Check the guide for proper waste classification.',
-                  'type': 'update',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 2))),
-                },
-                {
-                  'title': 'Overflowing Bin Alert',
-                  'body': 'Bin at Block A is overflowing. Please contact waste management immediately.',
-                  'type': 'alert',
-                  'createdAt': Timestamp.fromDate(DateTime.now().subtract(Duration(days: 3))),
-                },
-              ];
-
-              // Use real notifications if available, otherwise show samples
-              List<Map<String, dynamic>> displayNotifications = [];
-              
-              if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                displayNotifications = snapshot.data!.docs.map((d) {
-                  return d.data() as Map<String, dynamic>;
-                }).toList();
-              } else {
-                displayNotifications = sampleNotifications;
-              }
-
-              final docs = displayNotifications.where((d) {
-                if (_notificationFilterIndex == 0) return true;
-                final type = (d['type']?.toString().toLowerCase() ?? '');
-                if (_notificationFilterIndex == 1) return type.contains('remind') || type == 'reminder';
-                if (_notificationFilterIndex == 2) return type.contains('update');
-                if (_notificationFilterIndex == 3) return type.contains('alert');
-                return true;
-              }).toList();
-
-              if (docs.isEmpty) {
-                return Center(child: Text('No notifications', style: TextStyle(color: Colors.grey[600])));
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: docs.length,
-                itemBuilder: (context, index) {
-                  final data = docs[index] as Map<String, dynamic>;
-                  final title = data['title'] ?? 'Notification';
-                  final body = data['body'] ?? '';
-                  final type = data['type']?.toString().toLowerCase() ?? '';
-                  final createdAt = data['createdAt'] as Timestamp?;
-
-                  Color leftColor = Colors.grey;
-                  IconData icon = Icons.notifications;
-                  if (type.contains('remind') || type == 'reminder') {
-                    leftColor = Colors.green;
-                    icon = Icons.local_shipping;
-                  } else if (type.contains('update')) {
-                    leftColor = Colors.purple;
-                    icon = Icons.check_circle;
-                  } else if (type.contains('alert')) {
-                    leftColor = Colors.orange;
-                    icon = Icons.warning_amber_rounded;
-                  }
-
-                  String timeText = '';
-                  if (createdAt != null) {
-                    final dt = createdAt.toDate();
-                    final diff = DateTime.now().difference(dt);
-                    if (diff.inDays >= 1) {
-                      timeText = '${dt.month}/${dt.day}/${dt.year}';
-                    } else if (diff.inHours >= 1) {
-                      timeText = '${diff.inHours}h ago';
-                    } else if (diff.inMinutes >= 1) {
-                      timeText = '${diff.inMinutes}m ago';
-                    } else {
-                      timeText = 'just now';
-                    }
-                  }
-
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Row(
+          child: residentAreaCode.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Container(width: 6, height: 84, decoration: BoxDecoration(color: leftColor, borderRadius: BorderRadius.circular(6))),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Card(
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: ListTile(
-                              leading: CircleAvatar(backgroundColor: leftColor.withOpacity(0.12), child: Icon(icon, color: leftColor)),
-                              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(body),
-                              trailing: Text(timeText, style: TextStyle(color: Colors.grey[500], fontSize: 12)),
-                            ),
-                          ),
+                        Icon(Icons.notifications_off_outlined, size: 56, color: Colors.grey[400]),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No area code set',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Set your area code in your profile to receive notifications.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey[600]),
                         ),
                       ],
                     ),
-                  );
-                },
-              );
-            },
-          ),
+                  ),
+                )
+              : StreamBuilder<QuerySnapshot>(
+                  // Single-field query — no composite index needed on Android
+                  stream: _firestore
+                      .collection('notifications')
+                      .where('areaCode', isEqualTo: residentAreaCode)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    List<Map<String, dynamic>> docs = [];
+                    if (snapshot.hasData) {
+                      docs = snapshot.data!.docs
+                          .map((d) => d.data() as Map<String, dynamic>)
+                          .toList()
+                        ..sort((a, b) {
+                          final aTs = a['createdAt'];
+                          final bTs = b['createdAt'];
+                          if (aTs == null && bTs == null) return 0;
+                          if (aTs == null) return 1;
+                          if (bTs == null) return -1;
+                          return (bTs as Timestamp).compareTo(aTs as Timestamp);
+                        });
+                    }
+
+                    if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+
+                    if (docs.isEmpty) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.notifications_none, size: 56, color: Colors.grey[300]),
+                              const SizedBox(height: 16),
+                              Text(
+                                'No notifications for Area $residentAreaCode yet.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey[600]),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'You will be notified when the truck starts or a schedule is updated.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+
+                    return ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: docs.length,
+                      itemBuilder: (context, index) {
+                        final data = docs[index];
+                        final title = data['title'] ?? 'Notification';
+                        final body = data['body'] ?? '';
+                        final type = (data['type'] ?? '').toString().toLowerCase();
+                        final createdAt = data['createdAt'] as Timestamp?;
+
+                        Color leftColor;
+                        IconData icon;
+                        if (type == 'shift_start') {
+                          leftColor = Colors.green;
+                          icon = Icons.local_shipping;
+                        } else if (type == 'schedule_update' || type == 'schedule_add') {
+                          leftColor = Colors.blue;
+                          icon = Icons.calendar_month;
+                        } else {
+                          leftColor = Colors.orange;
+                          icon = Icons.notifications;
+                        }
+
+                        String timeText = '';
+                        if (createdAt != null) {
+                          final dt = createdAt.toDate();
+                          final diff = DateTime.now().difference(dt);
+                          if (diff.inDays >= 1) {
+                            timeText = '${dt.day}/${dt.month}/${dt.year}';
+                          } else if (diff.inHours >= 1) {
+                            timeText = '${diff.inHours}h ago';
+                          } else if (diff.inMinutes >= 1) {
+                            timeText = '${diff.inMinutes}m ago';
+                          } else {
+                            timeText = 'just now';
+                          }
+                        }
+
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 84,
+                                decoration: BoxDecoration(
+                                  color: leftColor,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Card(
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  child: ListTile(
+                                    leading: CircleAvatar(
+                                      backgroundColor: leftColor.withValues(alpha: 0.12),
+                                      child: Icon(icon, color: leftColor),
+                                    ),
+                                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                    subtitle: Text(body),
+                                    trailing: Text(
+                                      timeText,
+                                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
         ),
       ],
     );

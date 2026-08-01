@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:async';
 import 'dart:convert';
 import '../services/routing_service.dart';
+import '../services/notification_service.dart';
 import '../utils/area_options.dart';
 
 class CollectorHome extends StatefulWidget {
@@ -34,6 +35,7 @@ class _CollectorHomeState extends State<CollectorHome> {
   String? _draftImageName;
   bool _isPickingImage = false;
   bool _isSeedingSchedules = false;
+  String? _currentAreaCode; // Area code selected when starting the shift
 
   @override
   void initState() {
@@ -282,6 +284,19 @@ class _CollectorHomeState extends State<CollectorHome> {
     await docRef.set(data, SetOptions(merge: true));
     if (!mounted) return;
     setState(() {});
+
+    // Send in-app notification to residents in the schedule's area code
+    await NotificationService.sendToArea(
+      areaCode: areaCode,
+      title: scheduleId == null
+          ? '📅 New Collection Schedule — Area $areaCode'
+          : '📅 Schedule Updated — Area $areaCode',
+      body: scheduleId == null
+          ? 'A new $wasteType collection has been scheduled for ${_formatDate(selectedDate)} at ${selectedTime.format(dialogContext)} in your area.'
+          : '$wasteType collection on ${_formatDate(selectedDate)} at ${selectedTime.format(dialogContext)} has been updated.',
+      type: 'schedule_update',
+    );
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Schedule saved to Firebase successfully')),
     );
@@ -565,8 +580,70 @@ class _CollectorHomeState extends State<CollectorHome> {
     if (_isOnShift) {
       await _stopShift();
     } else {
+      // Show area code picker before starting shift
+      final selectedArea = await _showAreaCodePicker();
+      if (selectedArea == null) return; // user cancelled
+      setState(() => _currentAreaCode = selectedArea);
       await _startShift();
     }
+  }
+
+  /// Shows a bottom sheet for the collector to select the area they will serve.
+  Future<String?> _showAreaCodePicker() async {
+    return showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
+                child: Text(
+                  'Select Area Code',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Choose the area you will be collecting from during this shift.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Divider(),
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: kAreaCodes.length,
+                itemBuilder: (context, index) {
+                  final area = kAreaCodes[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: Colors.green[50],
+                      child: Text(
+                        area.substring(0, area.length > 2 ? 2 : area.length),
+                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                      ),
+                    ),
+                    title: Text('Area $area'),
+                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                    onTap: () => Navigator.pop(context, area),
+                  );
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _startShift() async {
@@ -660,7 +737,18 @@ class _CollectorHomeState extends State<CollectorHome> {
         'timestamp': FieldValue.serverTimestamp(),
         'accuracy': position.accuracy,
         'speed': 0.0,
+        'areaCode': _currentAreaCode ?? '',
       });
+
+      // Send in-app notification to residents in the selected area
+      if (_currentAreaCode != null && _currentAreaCode!.isNotEmpty) {
+        await NotificationService.sendToArea(
+          areaCode: _currentAreaCode!,
+          title: '🚛 Truck Started Shift — Area $_currentAreaCode',
+          body: 'The waste collection truck has started its shift in your area. Please have your bins ready.',
+          type: 'shift_start',
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -704,6 +792,7 @@ class _CollectorHomeState extends State<CollectorHome> {
       _currentSpeed = 0.0;
       _routePoints = null;
       _selectedResident = null;
+      _currentAreaCode = null;
     });
 
     if (mounted) {
@@ -899,7 +988,9 @@ class _CollectorHomeState extends State<CollectorHome> {
                         ),
                         Text(
                           _isOnShift
-                              ? 'Broadcasting location every 10 seconds'
+                              ? (_currentAreaCode != null
+                                  ? 'Area: $_currentAreaCode • Broadcasting location every 10s'
+                                  : 'Broadcasting location every 10 seconds')
                               : 'Tap the button below to start your shift',
                           style: TextStyle(fontSize: 14, color: Colors.grey[700]),
                         ),
