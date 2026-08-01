@@ -1858,9 +1858,17 @@ class _ResidentHomeState extends State<ResidentHome> {
               scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
           if (!areaMatches) return false;
 
+          if (_scheduleFilterIndex == 0) {
+            return true;
+          }
+
           final scheduleDate = _resolveScheduleDate(schedule);
           final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
           final status = _scheduleStatus(schedule, dayOfWeek);
+
+          if (_scheduleFilterIndex == 1) {
+            return status == 'Upcoming';
+          }
 
           final bool dayMatches;
           if (scheduleDate != null) {
@@ -1871,12 +1879,14 @@ class _ResidentHomeState extends State<ResidentHome> {
             dayMatches = dayOfWeek.isEmpty || dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
           }
           if (!dayMatches) return false;
-
-          if (_scheduleFilterIndex == 0) return true;
-          if (_scheduleFilterIndex == 1) return status == 'Upcoming';
           if (_scheduleFilterIndex == 2) return status == 'Completed';
           return status == 'Missed';
-        }).toList();
+        }).toList()
+          ..sort((a, b) {
+            final aDate = _resolveScheduleDate(a) ?? DateTime(9999);
+            final bDate = _resolveScheduleDate(b) ?? DateTime(9999);
+            return aDate.compareTo(bDate);
+          });
 
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
