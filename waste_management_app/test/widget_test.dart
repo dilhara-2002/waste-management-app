@@ -1,30 +1,29 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 
+import 'package:waste_management_app/firebase_options.dart';
 import 'package:waste_management_app/main.dart';
+import 'package:waste_management_app/screens/resident_home.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('app launches', (WidgetTester tester) async {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     await tester.pumpWidget(const MyApp());
+    expect(find.byType(MyApp), findsOneWidget);
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  test('resident location helpers update and remove the saved coordinate pair', () {
+    final update = ResidentHome.buildLocationUpdatePayload(const LatLng(6.9271, 79.8612));
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    expect(update['latitude'], 6.9271);
+    expect(update['longitude'], 79.8612);
+    expect(update['locationUpdated'], isA<FieldValue>());
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    final remove = ResidentHome.buildLocationRemovalPayload();
+    expect(remove['latitude'], isA<FieldValue>());
+    expect(remove['longitude'], isA<FieldValue>());
+    expect(remove['locationUpdated'], isA<FieldValue>());
   });
 }

@@ -12,6 +12,22 @@ import 'segregation_guide.dart';
 class ResidentHome extends StatefulWidget {
   const ResidentHome({super.key});
 
+  static Map<String, dynamic> buildLocationUpdatePayload(LatLng location) {
+    return {
+      'latitude': location.latitude,
+      'longitude': location.longitude,
+      'locationUpdated': FieldValue.serverTimestamp(),
+    };
+  }
+
+  static Map<String, dynamic> buildLocationRemovalPayload() {
+    return {
+      'latitude': FieldValue.delete(),
+      'longitude': FieldValue.delete(),
+      'locationUpdated': FieldValue.serverTimestamp(),
+    };
+  }
+
   @override
   State<ResidentHome> createState() => _ResidentHomeState();
 }
@@ -198,6 +214,66 @@ class _ResidentHomeState extends State<ResidentHome> {
     }
   }
 
+  Future<void> _removeSavedLocation() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || _userData?['latitude'] == null || _userData?['longitude'] == null) {
+      return;
+    }
+
+    final shouldRemove = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete current location?'),
+        content: const Text('This will permanently remove your saved collection point from Firebase. You can set a new one later.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete Location'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldRemove != true) {
+      return;
+    }
+
+    try {
+      await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .set(ResidentHome.buildLocationRemovalPayload(), SetOptions(merge: true));
+
+      await _loadUserData();
+      _mapController.move(const LatLng(6.9271, 79.8612), 15.0);
+      _routePoints = null;
+      _routeDistance = null;
+      _routeDuration = null;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Collection point removed.'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error removing location: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showSetLocationDialog() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
@@ -261,17 +337,24 @@ class _ResidentHomeState extends State<ResidentHome> {
 
       // Show confirmation dialog with GPS location
       LatLng gpsPosition = LatLng(position.latitude, position.longitude);
-      LatLng? confirmedPosition = await showDialog<LatLng>(
+      final Object? dialogResult = await showDialog<Object?>(
         context: context,
         builder: (context) => _LocationPickerDialog(gpsPosition: gpsPosition),
       );
 
-      if (confirmedPosition != null) {
-        await _firestore.collection('users').doc(user.uid).update({
-          'latitude': confirmedPosition.latitude,
-          'longitude': confirmedPosition.longitude,
-          'locationUpdated': FieldValue.serverTimestamp(),
-        });
+      if (dialogResult == 'delete_location') {
+        await _removeSavedLocation();
+        return;
+      }
+
+      if (dialogResult is LatLng) {
+        final confirmedPosition = dialogResult;
+        final locationPayload = ResidentHome.buildLocationUpdatePayload(confirmedPosition);
+
+        await _firestore
+            .collection('users')
+            .doc(user.uid)
+            .set(locationPayload, SetOptions(merge: true));
 
         await _loadUserData();
         _mapController.move(confirmedPosition, 15.0);
@@ -329,12 +412,25 @@ class _ResidentHomeState extends State<ResidentHome> {
                   leading: const Icon(Icons.home_outlined),
                   title: const Text('Address'),
                   subtitle: Text(_userData?['address'] ?? (_userData?['latitude'] != null ? 'Lat: ${_userData!['latitude']}, Lon: ${_userData!['longitude']}' : 'Not set')),
-                  trailing: TextButton(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      await _showSetLocationDialog();
-                    },
-                    child: const Text('Edit'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () async {
+                          Navigator.pop(context);
+                          await _showSetLocationDialog();
+                        },
+                        child: Text(_userData?['latitude'] != null ? 'Edit' : 'Set'),
+                      ),
+                      if (_userData?['latitude'] != null && _userData?['longitude'] != null)
+                        TextButton(
+                          onPressed: () async {
+                            Navigator.pop(context);
+                            await _removeSavedLocation();
+                          },
+                          child: const Text('Delete Location'),
+                        ),
+                    ],
                   ),
                 ),
                 ListTile(
@@ -2385,43 +2481,90 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
               children: [
                 if (_manuallyAdjusted)
                   Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _selectedPosition = widget.gpsPosition;
-                          _manuallyAdjusted = false;
-                        });
-                        _dialogMapController.move(widget.gpsPosition, 17.0);
-                      },
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Reset to GPS'),
-                      style: OutlinedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: SizedBox(
+                      height: 72,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _selectedPosition = widget.gpsPosition;
+                            _manuallyAdjusted = false;
+                          });
+                          _dialogMapController.move(widget.gpsPosition, 17.0);
+                        },
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Reset\nto GPS', textAlign: TextAlign.center),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 if (_manuallyAdjusted) const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                    label: const Text('Cancel'),
+                SizedBox(
+                  width: 96,
+                  height: 72,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context, 'delete_location'),
                     style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      foregroundColor: Colors.red,
+                      side: const BorderSide(color: Colors.red, width: 1.2),
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.delete_outline, size: 22),
+                        SizedBox(height: 4),
+                        Text('Delete', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 96,
+                  height: 72,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    child: const Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.close, size: 22),
+                        SizedBox(height: 4),
+                        Text('Cancel', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                      ],
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   flex: 2,
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.pop(context, _selectedPosition),
-                    icon: const Icon(Icons.check_circle),
-                    label: const Text('Confirm Location'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: SizedBox(
+                    height: 72,
+                    child: ElevatedButton.icon(
+                      onPressed: () => Navigator.pop(context, _selectedPosition),
+                      icon: const Icon(Icons.check_circle),
+                      label: const Text('Confirm\nLocation', textAlign: TextAlign.center),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                      ),
                     ),
                   ),
                 ),
