@@ -36,7 +36,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   final _mapController = MapController();
   int _currentIndex = 0;
   int _scheduleFilterIndex = 1; // 0: All, 1: Upcoming, 2: Completed, 3: Missed
-  int _selectedScheduleDayIndex = DateTime.now().weekday - 1;
+  int _selectedScheduleDayIndex = 17; // today in the 35-day strip
+  final ScrollController _scheduleScrollController = ScrollController();
   final _firestore = FirebaseFirestore.instance;
   Map<String, dynamic>? _userData;
   Map<String, dynamic>? _truckLocation;
@@ -1849,17 +1850,26 @@ class _ResidentHomeState extends State<ResidentHome> {
           }
         }
 
-        final selectedDayName = _weekdayLongName(_selectedScheduleDayIndex);
+        final selectedDate = _dateForSelectedScheduleDay();
+        final selectedDayName = _weekdayLongName(selectedDate.weekday - 1);
         final filteredSchedules = sourceSchedules.where((schedule) {
           final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
           final areaMatches = residentAreaCode.isEmpty ||
               scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
           if (!areaMatches) return false;
 
+          final scheduleDate = _resolveScheduleDate(schedule);
           final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
           final status = _scheduleStatus(schedule, dayOfWeek);
 
-          final dayMatches = dayOfWeek.isEmpty || dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
+          final bool dayMatches;
+          if (scheduleDate != null) {
+            dayMatches = scheduleDate.year == selectedDate.year &&
+                scheduleDate.month == selectedDate.month &&
+                scheduleDate.day == selectedDate.day;
+          } else {
+            dayMatches = dayOfWeek.isEmpty || dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
+          }
           if (!dayMatches) return false;
 
           if (_scheduleFilterIndex == 0) return true;
@@ -1945,55 +1955,121 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
-  Widget _buildWeekStrip() {
+  DateTime _scheduleStripStartDate() {
+    final now = DateTime.now();
+    return now.subtract(const Duration(days: 17));
+  }
+
+  DateTime _dateForSelectedScheduleDay() {
+    return _scheduleStripStartDate().add(Duration(days: _selectedScheduleDayIndex));
+  }
+
+  bool _isSelectedDateInCurrentWeek(DateTime date) {
     final now = DateTime.now();
     final monday = now.subtract(Duration(days: now.weekday - 1));
+    final sunday = monday.add(const Duration(days: 6));
+    return !date.isBefore(monday) && !date.isAfter(sunday);
+  }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: List.generate(7, (index) {
-        final dayDate = monday.add(Duration(days: index));
-        final isSelected = _selectedScheduleDayIndex == index;
-        final dayName = _weekdayShortName(index);
+  DateTime? _findNewestScheduleDateForArea(List<Map<String, dynamic>> schedules, String residentAreaCode) {
+    DateTime? newest;
+    for (final schedule in schedules) {
+      final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
+      final areaMatches = residentAreaCode.isEmpty ||
+          scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
+      if (!areaMatches) continue;
 
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _selectedScheduleDayIndex = index;
-            });
-          },
-          child: Container(
-            width: 42,
-            height: 66,
-            decoration: BoxDecoration(
-              color: isSelected ? const Color(0xFF16C37E) : Colors.transparent,
-              borderRadius: BorderRadius.circular(21),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  dayName,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w500,
-                    color: isSelected ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF8EA0B5),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '${dayDate.day}',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: isSelected ? Colors.white : const Color(0xFF223246),
-                  ),
-                ),
-              ],
-            ),
-          ),
+      final scheduleDate = _resolveScheduleDate(schedule);
+      if (scheduleDate == null) continue;
+
+      if (newest == null || scheduleDate.isAfter(newest)) {
+        newest = scheduleDate;
+      }
+    }
+    return newest;
+  }
+
+  DateTime? _resolveScheduleDate(Map<String, dynamic> schedule) {
+    final rawDate = (schedule['date'] ?? '').toString();
+    if (rawDate.isNotEmpty) {
+      try {
+        return DateTime.parse(rawDate);
+      } catch (_) {
+        // Fall back to day-of-week matching below if the date is invalid.
+      }
+    }
+
+    final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
+    if (dayOfWeek.isEmpty) return null;
+    return _nextDateForWeekday(dayOfWeek);
+  }
+
+  Widget _buildWeekStrip() {
+    final stripStartDate = _scheduleStripStartDate();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scheduleScrollController.hasClients) return;
+      final targetOffset = (_selectedScheduleDayIndex * 50.0) - 90.0;
+      final clampedOffset = targetOffset.clamp(0.0, _scheduleScrollController.position.maxScrollExtent);
+      if ((_scheduleScrollController.offset - clampedOffset).abs() > 2) {
+        _scheduleScrollController.animateTo(
+          clampedOffset,
+          duration: const Duration(milliseconds: 280),
+          curve: Curves.easeOutCubic,
         );
-      }),
+      }
+    });
+
+    return SingleChildScrollView(
+      controller: _scheduleScrollController,
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: Row(
+        children: List.generate(35, (index) {
+          final dayDate = stripStartDate.add(Duration(days: index));
+          final isSelected = _selectedScheduleDayIndex == index;
+          final dayName = _weekdayShortName(dayDate.weekday - 1);
+
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedScheduleDayIndex = index;
+              });
+            },
+            child: Container(
+              width: 42,
+              height: 66,
+              margin: const EdgeInsets.only(right: 8),
+              decoration: BoxDecoration(
+                color: isSelected ? const Color(0xFF16C37E) : Colors.transparent,
+                borderRadius: BorderRadius.circular(21),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    dayName,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF8EA0B5),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '${dayDate.day}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: isSelected ? Colors.white : const Color(0xFF223246),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }),
+      ),
     );
   }
 
@@ -2075,7 +2151,7 @@ class _ResidentHomeState extends State<ResidentHome> {
       wasteIcon = Icons.delete_outline;
     }
 
-    final cardDate = _nextDateForWeekday(dayOfWeek);
+    final cardDate = _resolveScheduleDate(schedule) ?? _nextDateForWeekday(dayOfWeek);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),

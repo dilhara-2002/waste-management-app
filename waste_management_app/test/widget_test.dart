@@ -26,4 +26,12 @@ void main() {
     expect(remove['longitude'], isA<FieldValue>());
     expect(remove['locationUpdated'], isA<FieldValue>());
   });
+
+  test('resident schedule date index resolves correctly for a 35-day strip', () {
+    final stripStartDate = DateTime(2026, 8, 1);
+    final selectedDate = DateTime(2026, 8, 5);
+
+    final index = selectedDate.difference(stripStartDate).inDays;
+    expect(index, 4);
+  });
 }
