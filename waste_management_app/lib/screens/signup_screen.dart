@@ -15,7 +15,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _addressController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
@@ -41,7 +42,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
-    _addressController.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -66,7 +68,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
               'uid': credential.user!.uid,
               'email': _emailController.text.trim(),
               'role': _role,
-              'address': _addressController.text.trim(),
+              'name': _nameController.text.trim(),
+              'phone': _phoneController.text.trim(),
               'areaCode': _role == 'resident' ? _selectedAreaCode : '',
               'createdAt': FieldValue.serverTimestamp(),
             });
@@ -174,6 +177,27 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                   const SizedBox(height: 32),
 
+                  // Full Name field
+                  TextFormField(
+                    controller: _nameController,
+                    decoration: InputDecoration(
+                      labelText: 'Full Name',
+                      prefixIcon: const Icon(Icons.person_outline),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey[50],
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your full name';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 16),
+
                   // Email field
                   TextFormField(
                     controller: _emailController,
@@ -273,22 +297,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Address field
+                  // Phone field
                   TextFormField(
-                    controller: _addressController,
+                    controller: _phoneController,
                     decoration: InputDecoration(
-                      labelText: 'Address',
-                      prefixIcon: const Icon(Icons.location_on_outlined),
+                      labelText: 'Phone Number',
+                      prefixIcon: const Icon(Icons.phone_outlined),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                       filled: true,
                       fillColor: Colors.grey[50],
                     ),
-                    maxLines: 2,
+                    keyboardType: TextInputType.phone,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
-                        return 'Please enter your address';
+                        return 'Please enter your phone number';
                       }
                       return null;
                     },
