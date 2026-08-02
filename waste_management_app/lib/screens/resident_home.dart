@@ -46,6 +46,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   num? _routeDistance;
   num? _routeDuration;
   int _notificationFilterIndex = 0; // 0: All, 1: Reminders, 2: Updates, 3: Alerts
+  int _newAlertCount = 0;
+  DateTime? _lastAlertViewedAt;
   int _supportTabIndex = 0; // 0: Report Issue, 1: Give Feedback
   String _selectedIssueType = 'Missed Pickup';
   String _reportDescription = '';
@@ -105,6 +107,7 @@ class _ResidentHomeState extends State<ResidentHome> {
     _notifSubscription?.cancel();
     _notifListenerInitialized = false;
     _notifResidentAreaCode = residentAreaCode;
+    _lastAlertViewedAt = DateTime.now();
 
     _notifSubscription = _firestore
         .collection('notifications')
@@ -123,10 +126,18 @@ class _ResidentHomeState extends State<ResidentHome> {
         if (change.type == DocumentChangeType.added) {
           final data = change.doc.data() as Map<String, dynamic>?;
           if (data == null) continue;
+
+          final timestamp = data['createdAt'] as Timestamp?;
+          final createdAt = timestamp?.toDate();
           final title = (data['title'] ?? 'Notification').toString();
           final body = (data['body'] ?? '').toString();
 
-          // Show popup only for truly new notifications
+          if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
+            setState(() {
+              _newAlertCount += 1;
+            });
+          }
+
           if (mounted && _currentIndex != 4) {
             showDialog(
               context: context,
@@ -138,7 +149,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                   TextButton(
                     onPressed: () {
                       Navigator.pop(ctx);
-                      setState(() => _currentIndex = 4);
+                      setState(() {
+                        _newAlertCount = 0;
+                        _lastAlertViewedAt = DateTime.now();
+                        _currentIndex = 4;
+                      });
                     },
                     child: const Text('View'),
                   ),
@@ -778,17 +793,47 @@ class _ResidentHomeState extends State<ResidentHome> {
         onTap: (index) {
           setState(() {
             _currentIndex = index;
+            if (index == 4) {
+              _newAlertCount = 0;
+              _lastAlertViewedAt = DateTime.now();
+            }
           });
         },
         type: BottomNavigationBarType.fixed,
         selectedItemColor: Colors.green[700],
         unselectedItemColor: Colors.grey[600],
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.map_outlined), label: 'Map'),
-          BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Schedule'),
-          BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Report'),
-          BottomNavigationBarItem(icon: Icon(Icons.notifications_outlined), label: 'Alerts'),
+        items: [
+          const BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
+          const BottomNavigationBarItem(icon: Icon(Icons.map_outlined), label: 'Map'),
+          const BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Schedule'),
+          const BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Report'),
+          BottomNavigationBarItem(
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_outlined),
+                if (_newAlertCount > 0)
+                  Positioned(
+                    right: -7,
+                    top: -5,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: const BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      child: Text(
+                        _newAlertCount > 99 ? '99+' : _newAlertCount.toString(),
+                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            label: 'Alerts',
+          ),
         ],
       ),
     );
@@ -2931,93 +2976,77 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
               ),
             ),
             const SizedBox(height: 16),
-            Row(
+            Column(
               children: [
-                if (_manuallyAdjusted)
-                  Expanded(
-                    child: SizedBox(
-                      height: 72,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _selectedPosition = widget.gpsPosition;
-                            _manuallyAdjusted = false;
-                          });
-                          _dialogMapController.move(widget.gpsPosition, 17.0);
-                        },
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Reset\nto GPS', textAlign: TextAlign.center),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 64,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context, 'delete_location'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.red,
+                            side: const BorderSide(color: Colors.red, width: 1.2),
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.delete_outline, size: 22),
+                              SizedBox(height: 4),
+                              Text('Delete', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                            ],
                           ),
                         ),
                       ),
                     ),
-                  ),
-                if (_manuallyAdjusted) const SizedBox(width: 8),
-                SizedBox(
-                  width: 96,
-                  height: 72,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context, 'delete_location'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red, width: 1.2),
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.delete_outline, size: 22),
-                        SizedBox(height: 4),
-                        Text('Delete', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 96,
-                  height: 72,
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    child: const Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.close, size: 22),
-                        SizedBox(height: 4),
-                        Text('Cancel', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: SizedBox(
-                    height: 72,
-                    child: ElevatedButton.icon(
-                      onPressed: () => Navigator.pop(context, _selectedPosition),
-                      icon: const Icon(Icons.check_circle),
-                      label: const Text('Confirm\nLocation', textAlign: TextAlign.center),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(18),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: SizedBox(
+                        height: 64,
+                        child: OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                          child: const Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.close, size: 22),
+                              SizedBox(height: 4),
+                              Text('Cancel', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                            ],
+                          ),
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 58,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.pop(context, _selectedPosition),
+                    icon: const Icon(Icons.check_circle),
+                    label: const Text(
+                      'Confirm',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
                       ),
                     ),
                   ),
