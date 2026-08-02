@@ -21,7 +21,11 @@ class AuthService {
 
   // Register new user
   Future<User?> register(
-      String email, String password, String role, String address) async {
+      String email,
+      String password,
+      String role,
+      String name,
+      String phone) async {
     try {
       // Create user in Firebase Auth
       UserCredential result = await _auth.createUserWithEmailAndPassword(
@@ -37,7 +41,10 @@ class AuthService {
           'uid': user.uid,
           'email': email,
           'role': role,
-          'address': address,
+          'name': name,
+          'phone': phone,
+          'areaCode': '',
+          'createdAt': FieldValue.serverTimestamp(),
         });
       }
 

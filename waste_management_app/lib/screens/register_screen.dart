@@ -11,7 +11,8 @@ class RegisterScreen extends StatefulWidget {
 class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _addressController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _authService = AuthService();
 
   String _selectedRole = 'resident';
@@ -21,7 +22,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _addressController.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -34,7 +36,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _emailController.text.trim(),
       _passwordController.text.trim(),
       _selectedRole,
-      _addressController.text.trim(),
+      _nameController.text.trim(),
+      _phoneController.text.trim(),
     );
 
     setState(() {
@@ -85,11 +88,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
             ),
             const SizedBox(height: 16),
             TextField(
-              controller: _addressController,
+              controller: _nameController,
               decoration: const InputDecoration(
-                labelText: 'Address',
+                labelText: 'Full Name',
                 border: OutlineInputBorder(),
               ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _phoneController,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
