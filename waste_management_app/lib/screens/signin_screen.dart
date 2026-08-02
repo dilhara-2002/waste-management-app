@@ -107,6 +107,54 @@ class _SignInScreenState extends State<SignInScreen> {
     }
   }
 
+  Future<void> _forgotPassword() async {
+    final email = _emailController.text.trim();
+
+    if (email.isEmpty) {
+      _showSnackBar('Please enter your email to reset password', isError: true);
+      return;
+    }
+
+    try {
+      setState(() => _isLoading = true);
+      await _auth.sendPasswordResetEmail(email: email);
+
+      if (!mounted) return;
+      showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Password Reset Email Sent'),
+          content: Text('A password reset link has been sent to $email. Please check your inbox.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      String message = 'Failed to send reset email.';
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'No user found for this email.';
+          break;
+        case 'invalid-email':
+          message = 'Invalid email format.';
+          break;
+        default:
+          message = 'Error: ${e.message ?? e.code}';
+      }
+      _showSnackBar(message, isError: true);
+      debugPrint('Password reset error: ${e.code} - ${e.message}');
+    } catch (e) {
+      _showSnackBar('An error occurred: $e', isError: true);
+      debugPrint('Password reset exception: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _showSnackBar(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -223,6 +271,16 @@ class _SignInScreenState extends State<SignInScreen> {
                     },
                   ),
                   const SizedBox(height: 24),
+
+                  // Forgot password
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: _isLoading ? null : _forgotPassword,
+                      child: const Text('Forgot Password?'),
+                    ),
+                  ),
+
 
                   // Sign In button
                   SizedBox(
