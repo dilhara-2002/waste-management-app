@@ -2,17 +2,33 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MapWidget extends StatelessWidget {
   const MapWidget({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance
-          .collection('truck_locations')
-          .snapshots(),
-      builder: (context, snapshot) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    return FutureBuilder<DocumentSnapshot?>(
+      future: user == null
+          ? Future.value(null)
+          : FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
+      builder: (context, userSnap) {
+        String? areaCode;
+        if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
+          final data = userSnap.data!.data() as Map<String, dynamic>?;
+          areaCode = data?['areaCode']?.toString()?.trim();
+        }
+
+        final stream = (areaCode != null && areaCode.isNotEmpty)
+            ? FirebaseFirestore.instance.collection('truck_locations').where('areaCode', isEqualTo: areaCode).snapshots()
+            : FirebaseFirestore.instance.collection('truck_locations').snapshots();
+
+        return StreamBuilder<QuerySnapshot>(
+          stream: stream,
+          builder: (context, snapshot) {
         List<Marker> markers = [];
 
         // Add truck markers if data is available

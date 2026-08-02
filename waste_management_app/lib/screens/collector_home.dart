@@ -931,6 +931,7 @@ class _CollectorHomeState extends State<CollectorHome> {
             'timestamp': FieldValue.serverTimestamp(),
             'accuracy': position.accuracy,
             'speed': speed, // km/h
+            'areaCode': _currentAreaCode ?? '',
           });
 
           debugPrint('📍 Location: ${position.latitude}, ${position.longitude}, Speed: ${speed.toStringAsFixed(1)} km/h, Accuracy: ${position.accuracy.toStringAsFixed(1)}m');

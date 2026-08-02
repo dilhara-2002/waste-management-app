@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
+import 'dart:async';
 import '../utils/geo_helper.dart';
 import '../services/routing_service.dart';
 import 'segregation_guide.dart';
@@ -52,12 +53,24 @@ class _ResidentHomeState extends State<ResidentHome> {
   // Cached community posts to prevent blinking on Firestore real-time updates
   List<Map<String, dynamic>>? _communityPosts;
   bool _isRefreshing = false;
+  StreamSubscription<QuerySnapshot>? _notifSubscription;
+  bool _notifListenerInitialized = false;
+  String? _notifResidentAreaCode;
+  StreamSubscription<dynamic>? _truckSubscription;
 
   @override
   void initState() {
     super.initState();
     _loadUserData();
     _listenToTruckLocation();
+  }
+
+  @override
+  void dispose() {
+    _notifSubscription?.cancel();
+    _truckSubscription?.cancel();
+    _scheduleScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserData() async {
@@ -74,8 +87,68 @@ class _ResidentHomeState extends State<ResidentHome> {
           _mapController.move(LatLng(lat, lon), 15.0);
         }
         _fetchRoute(); // Fetch route when user data loads
+        // Start notification listener and truck listener (will avoid re-subscribing if area same)
+        _startNotificationListener();
+        _listenToTruckLocation();
       }
     }
+  }
+
+  void _startNotificationListener() {
+    final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
+    if (residentAreaCode.isEmpty) return;
+
+    // If already listening for the same area, do nothing
+    if (_notifSubscription != null && _notifResidentAreaCode == residentAreaCode) return;
+
+    // Cancel previous subscription and reset init flag
+    _notifSubscription?.cancel();
+    _notifListenerInitialized = false;
+    _notifResidentAreaCode = residentAreaCode;
+
+    _notifSubscription = _firestore
+        .collection('notifications')
+        .where('areaCode', isEqualTo: residentAreaCode)
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
+
+      // The first snapshot delivers all existing documents as `added` — ignore
+      if (!_notifListenerInitialized) {
+        _notifListenerInitialized = true;
+        return;
+      }
+
+      for (final change in snapshot.docChanges) {
+        if (change.type == DocumentChangeType.added) {
+          final data = change.doc.data() as Map<String, dynamic>?;
+          if (data == null) continue;
+          final title = (data['title'] ?? 'Notification').toString();
+          final body = (data['body'] ?? '').toString();
+
+          // Show popup only for truly new notifications
+          if (mounted && _currentIndex != 4) {
+            showDialog(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: Text(title),
+                content: Text(body),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(ctx);
+                      setState(() => _currentIndex = 4);
+                    },
+                    child: const Text('View'),
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+      }
+    });
   }
 
   Future<void> _fetchRoute() async {
@@ -109,51 +182,101 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   void _listenToTruckLocation() {
-    // Listen to the specific truck document written by collectors ('truck_1')
-    final docRef = _firestore.collection('truck_locations').doc('truck_1');
-    docRef.snapshots().listen((snapshot) {
-      if (snapshot.exists && mounted) {
-        final data = snapshot.data();
-        if (data == null) return;
+    // Cancel previous truck subscription if any
+    _truckSubscription?.cancel();
 
-        final timestamp = data['timestamp'] as Timestamp?;
-        debugPrint('🚛 Truck location received: lat=${data['latitude']}, lon=${data['longitude']}');
+    final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
 
+    if (residentAreaCode.isNotEmpty) {
+      // Listen to all trucks in the resident's area only
+      _truckSubscription = _firestore
+          .collection('truck_locations')
+          .where('areaCode', isEqualTo: residentAreaCode)
+          .snapshots()
+          .listen((snapshot) {
+        if (!mounted) return;
+        if (snapshot.docs.isEmpty) {
+          setState(() {
+            _truckLocation = null;
+            _routePoints = null;
+            _routeDistance = null;
+            _routeDuration = null;
+          });
+          return;
+        }
+
+        // Choose the closest truck to the user if we have user coords
+        Map<String, dynamic>? chosen;
+        if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
+          final userLat = _userData!['latitude'] as double;
+          final userLon = _userData!['longitude'] as double;
+          double? bestDist;
+          for (var doc in snapshot.docs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final lat = data['latitude'] as double?;
+            final lon = data['longitude'] as double?;
+            if (lat == null || lon == null) continue;
+            final dist = GeoHelper.calculateDistance(userLat, userLon, lat, lon);
+            if (bestDist == null || dist < bestDist) {
+              bestDist = dist;
+              chosen = data;
+            }
+          }
+        }
+
+        // Fallback: pick the first truck
+        chosen ??= snapshot.docs.first.data() as Map<String, dynamic>;
+
+        // Validate timestamp freshness
+        final timestamp = chosen['timestamp'] as Timestamp?;
         if (timestamp != null) {
           final age = DateTime.now().difference(timestamp.toDate());
-          debugPrint('🕐 Truck location age: ${age.inSeconds} seconds');
-
           if (age.inSeconds < 60) {
-            debugPrint('✅ Showing truck on map');
             setState(() {
-              _truckLocation = data;
+              _truckLocation = chosen;
             });
             _fetchRoute();
             return;
-          } else {
-            debugPrint('⏰ Truck location too old (${age.inHours} hours), hiding');
-            if (age.inHours > 1) {
-              // Cleanup stale document
-              // Only collectors may remove a truck location when ending a shift.
-              debugPrint('🗑️ Deleted stale truck location');
-            }
           }
-        } else {
-          debugPrint('⚠️ No timestamp on truck location');
         }
-      } else {
-        debugPrint('📍 No truck location document');
-      }
 
-      if (mounted) {
+        // If we reach here, no fresh truck
         setState(() {
           _truckLocation = null;
           _routePoints = null;
           _routeDistance = null;
           _routeDuration = null;
         });
-      }
-    });
+      });
+    } else {
+      // Fallback: listen to single truck document (legacy)
+      final docRef = _firestore.collection('truck_locations').doc('truck_1');
+      _truckSubscription = docRef.snapshots().listen((snapshot) {
+        if (snapshot.exists && mounted) {
+          final data = snapshot.data();
+          if (data == null) return;
+
+          final timestamp = data['timestamp'] as Timestamp?;
+          if (timestamp != null) {
+            final age = DateTime.now().difference(timestamp.toDate());
+            if (age.inSeconds < 60) {
+              setState(() => _truckLocation = data);
+              _fetchRoute();
+              return;
+            }
+          }
+        }
+
+        if (mounted) {
+          setState(() {
+            _truckLocation = null;
+            _routePoints = null;
+            _routeDistance = null;
+            _routeDuration = null;
+          });
+        }
+      });
+    }
   }
 
   Future<void> _logout() async {
