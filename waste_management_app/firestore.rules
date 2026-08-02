@@ -30,5 +30,23 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update, delete: if isCollector();
     }
+
+    match /notifications/{notifId} {
+      // Any signed-in user can read; collectors (or any signed-in user) can write.
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn();
+    }
+
+    match /reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
+
+    match /feedback/{feedbackId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn();
+    }
   }
 }

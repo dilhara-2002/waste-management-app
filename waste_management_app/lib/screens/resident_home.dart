@@ -387,92 +387,238 @@ class _ResidentHomeState extends State<ResidentHome> {
   void _showProfileSheet() {
     final user = FirebaseAuth.instance.currentUser;
 
+    final nameCtrl = TextEditingController(text: (_userData?['name'] ?? '').toString());
+    final phoneCtrl = TextEditingController(text: (_userData?['phone'] ?? '').toString());
+    final areaCtrl = TextEditingController(text: (_userData?['areaCode'] ?? '').toString());
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: SafeArea(
-            child: Wrap(
-              children: [
-                ListTile(
-                  title: const Text('Profile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  trailing: IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                ),
-                const Divider(),
-                ListTile(
-                  leading: const Icon(Icons.email_outlined),
-                  title: const Text('Email'),
-                  subtitle: Text(user?.email ?? _userData?['email'] ?? 'Not set'),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.home_outlined),
-                  title: const Text('Address'),
-                  subtitle: Text(_userData?['address'] ?? (_userData?['latitude'] != null ? 'Lat: ${_userData!['latitude']}, Lon: ${_userData!['longitude']}' : 'Not set')),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextButton(
-                        onPressed: () async {
-                          Navigator.pop(context);
-                          await _showSetLocationDialog();
-                        },
-                        child: Text(_userData?['latitude'] != null ? 'Edit' : 'Set'),
-                      ),
-                      if (_userData?['latitude'] != null && _userData?['longitude'] != null)
-                        TextButton(
-                          onPressed: () async {
-                            Navigator.pop(context);
-                            await _removeSavedLocation();
-                          },
-                          child: const Text('Delete Location'),
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            bool isSaving = false;
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text('My Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
                         ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          user?.email ?? _userData?['email'] ?? '',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                        ),
+                        const Divider(height: 24),
+                        TextField(
+                          controller: nameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Full Name',
+                            prefixIcon: Icon(Icons.person_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: phoneCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                            prefixIcon: Icon(Icons.phone_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: areaCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Area Code',
+                            prefixIcon: Icon(Icons.map_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        // Location row
+                        Row(
+                          children: [
+                            const Icon(Icons.home_outlined, color: Colors.grey, size: 20),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _userData?['latitude'] != null
+                                    ? 'Pickup: Lat ${(_userData!['latitude'] as double).toStringAsFixed(4)}, Lon ${(_userData!['longitude'] as double).toStringAsFixed(4)}'
+                                    : 'No pickup location set',
+                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                Navigator.pop(context);
+                                await _showSetLocationDialog();
+                              },
+                              child: Text(_userData?['latitude'] != null ? 'Edit' : 'Set'),
+                            ),
+                            if (_userData?['latitude'] != null && _userData?['longitude'] != null)
+                              TextButton(
+                                onPressed: () async {
+                                  Navigator.pop(context);
+                                  await _removeSavedLocation();
+                                },
+                                child: const Text('Remove', style: TextStyle(color: Colors.red)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    setSheetState(() => isSaving = true);
+                                    try {
+                                      final uid = user?.uid;
+                                      if (uid == null) return;
+                                      await _firestore.collection('users').doc(uid).set({
+                                        'name': nameCtrl.text.trim(),
+                                        'phone': phoneCtrl.text.trim(),
+                                        'areaCode': areaCtrl.text.trim(),
+                                        'updatedAt': FieldValue.serverTimestamp(),
+                                      }, SetOptions(merge: true));
+                                      await _loadUserData();
+                                      if (mounted) Navigator.pop(context);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Profile updated successfully')),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error updating profile: $e')),
+                                        );
+                                      }
+                                    } finally {
+                                      setSheetState(() => isSaving = false);
+                                    }
+                                  },
+                            icon: isSaving
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.save_outlined),
+                            label: Text(isSaving ? 'Saving...' : 'Save Changes'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green[700],
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final email = user?.email ?? _userData?['email']?.toString();
+                              if (email == null || email.isEmpty) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email available to send reset link')));
+                                return;
+                              }
+                              try {
+                                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+                              } catch (e) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error sending reset email: $e')));
+                              }
+                            },
+                            icon: const Icon(Icons.lock_outline),
+                            label: const Text('Reset Password'),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              await _logout();
+                            },
+                            icon: const Icon(Icons.logout, color: Colors.orange),
+                            label: const Text('Logout', style: TextStyle(color: Colors.orange)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.orange),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Account'),
+                                  content: const Text(
+                                    'This will permanently delete your account and all associated data. This action cannot be undone.',
+                                  ),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed == true) {
+                                try {
+                                  final uid = user?.uid;
+                                  if (uid != null) {
+                                    await _firestore.collection('users').doc(uid).delete();
+                                  }
+                                  await user?.delete();
+                                  if (mounted) Navigator.pushReplacementNamed(context, '/');
+                                } catch (e) {
+                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting account: $e')));
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.delete_forever, color: Colors.red),
+                            label: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.red),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
                   ),
                 ),
-                ListTile(
-                  leading: const Icon(Icons.map_outlined),
-                  title: const Text('Area code'),
-                  subtitle: Text((_userData?['areaCode'] ?? 'Not set').toString()),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.lock_outline),
-                  title: const Text('Password'),
-                  subtitle: const Text('Change or reset your password'),
-                  trailing: TextButton(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      final email = user?.email ?? _userData?['email'];
-                      if (email == null) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email available to send reset link')));
-                        return;
-                      }
-                      try {
-                        await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
-                      } catch (e) {
-                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error sending reset email: $e')));
-                      }
-                    },
-                    child: const Text('Reset'),
-                  ),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: const Text('Logout'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await _logout();
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
-            ),
-          ),
+              ),
+            );
+          },
         );
       },
     );

@@ -36,11 +36,234 @@ class _CollectorHomeState extends State<CollectorHome> {
   bool _isPickingImage = false;
   bool _isSeedingSchedules = false;
   String? _currentAreaCode; // Area code selected when starting the shift
+  Map<String, dynamic>? _collectorProfile;
 
   @override
   void initState() {
     super.initState();
     _seedDefaultSchedulesIfEmpty();
+    _loadCollectorProfile();
+  }
+
+  Future<void> _loadCollectorProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      if (doc.exists && mounted) {
+        setState(() {
+          _collectorProfile = doc.data();
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _showCollectorProfileSheet() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await _loadCollectorProfile();
+    if (!mounted) return;
+
+    final nameCtrl = TextEditingController(text: (_collectorProfile?['name'] ?? '').toString());
+    final phoneCtrl = TextEditingController(text: (_collectorProfile?['phone'] ?? '').toString());
+    final areaCtrl = TextEditingController(text: (_collectorProfile?['areaCode'] ?? '').toString());
+    bool isSaving = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              child: SafeArea(
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text('Collector Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close),
+                              onPressed: () => Navigator.pop(context),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          user.email ?? _collectorProfile?['email'] ?? '',
+                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                        ),
+                        const Divider(height: 24),
+                        TextField(
+                          controller: nameCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Full Name',
+                            prefixIcon: Icon(Icons.person_outline),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: phoneCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Phone Number',
+                            prefixIcon: Icon(Icons.phone_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: areaCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'Area Code',
+                            prefixIcon: Icon(Icons.map_outlined),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: isSaving
+                                ? null
+                                : () async {
+                                    setSheetState(() => isSaving = true);
+                                    try {
+                                      await _firestore.collection('users').doc(user.uid).set({
+                                        'name': nameCtrl.text.trim(),
+                                        'phone': phoneCtrl.text.trim(),
+                                        'areaCode': areaCtrl.text.trim(),
+                                        'updatedAt': FieldValue.serverTimestamp(),
+                                      }, SetOptions(merge: true));
+                                      await _loadCollectorProfile();
+                                      if (mounted) Navigator.pop(context);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Profile updated successfully')),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Error updating profile: $e')),
+                                        );
+                                      }
+                                    } finally {
+                                      setSheetState(() => isSaving = false);
+                                    }
+                                  },
+                            icon: isSaving
+                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                : const Icon(Icons.save_outlined),
+                            label: Text(isSaving ? 'Saving...' : 'Save Changes'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final email = user.email ?? _collectorProfile?['email']?.toString();
+                              if (email == null || email.isEmpty) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email to send reset link')));
+                                return;
+                              }
+                              try {
+                                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+                              } catch (e) {
+                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                              }
+                            },
+                            icon: const Icon(Icons.lock_outline),
+                            label: const Text('Reset Password'),
+                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              Navigator.pop(context);
+                              await _logout();
+                            },
+                            icon: const Icon(Icons.logout, color: Colors.orange),
+                            label: const Text('Logout', style: TextStyle(color: Colors.orange)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.orange),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              final confirmed = await showDialog<bool>(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  title: const Text('Delete Account'),
+                                  content: const Text(
+                                    'This will permanently delete your account and all associated data. This action cannot be undone.',
+                                  ),
+                                  actions: [
+                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    ElevatedButton(
+                                      onPressed: () => Navigator.pop(ctx, true),
+                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                      child: const Text('Delete'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (confirmed == true) {
+                                try {
+                                  await _firestore.collection('users').doc(user.uid).delete();
+                                  await user.delete();
+                                  if (mounted) Navigator.pushReplacementNamed(context, '/');
+                                } catch (e) {
+                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting account: $e')));
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.delete_forever, color: Colors.red),
+                            label: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Colors.red),
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _seedDefaultSchedulesIfEmpty() async {
@@ -822,6 +1045,40 @@ class _CollectorHomeState extends State<CollectorHome> {
     }
   }
 
+  Future<void> _deleteResidentPickupPoint(Map<String, dynamic> resident) async {
+    // Use set() with merge instead of update() to avoid potential permission edge cases.
+    // Setting latitude/longitude to null effectively removes them from queries.
+    final removePayload = <String, dynamic>{
+      'latitude': null,
+      'longitude': null,
+      'locationUpdated': FieldValue.serverTimestamp(),
+    };
+
+    final userId = resident['uid'] as String? ?? '';
+    if (userId.isNotEmpty) {
+      await _firestore.collection('users').doc(userId).set(
+        removePayload,
+        SetOptions(merge: true),
+      );
+      return;
+    }
+
+    // Fallback: find by email
+    final email = resident['email'] as String? ?? '';
+    if (email.isEmpty) return;
+    final query = await _firestore
+        .collection('users')
+        .where('email', isEqualTo: email)
+        .limit(1)
+        .get();
+    if (query.docs.isNotEmpty) {
+      await query.docs.first.reference.set(
+        removePayload,
+        SetOptions(merge: true),
+      );
+    }
+  }
+
   Future<void> _showPickupDialog(Map<String, dynamic> resident) async {
     final lat = resident['latitude'] as double?;
     final lon = resident['longitude'] as double?;
@@ -845,9 +1102,14 @@ class _CollectorHomeState extends State<CollectorHome> {
       });
     }
 
+    // Capture the widget's context BEFORE entering the dialog builder.
+    // After Navigator.pop(dialogContext) the dialog context is deactivated,
+    // so all subsequent async operations must use the outer widget context.
+    final widgetContext = context;
+
     showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
+      context: widgetContext,
+      builder: (dialogCtx) => AlertDialog(
         title: const Row(
           children: [
             Icon(Icons.delete, color: Colors.green),
@@ -890,7 +1152,7 @@ class _CollectorHomeState extends State<CollectorHome> {
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogCtx);
               setState(() {
                 _routePoints = null;
                 _selectedResident = null;
@@ -899,8 +1161,57 @@ class _CollectorHomeState extends State<CollectorHome> {
             child: const Text('Close'),
           ),
           ElevatedButton.icon(
+            onPressed: () async {
+              Navigator.pop(dialogCtx); // close the first dialog
+              // Now use widgetContext (always live) for all subsequent UI calls
+              final confirmed = await showDialog<bool>(
+                context: widgetContext,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Mark as Picked Up'),
+                  content: Text('Remove pickup point for $email? This marks the bins as collected.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                      child: const Text('Confirm'),
+                    ),
+                  ],
+                ),
+              );
+              if (confirmed == true) {
+                try {
+                  await _deleteResidentPickupPoint(resident);
+                  if (mounted) {
+                    ScaffoldMessenger.of(widgetContext).showSnackBar(
+                      SnackBar(content: Text('Pickup point for $email removed.')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(widgetContext).showSnackBar(
+                      SnackBar(content: Text('Error removing pickup point: $e')),
+                    );
+                  }
+                }
+              }
+              if (mounted) {
+                setState(() {
+                  _routePoints = null;
+                  _selectedResident = null;
+                });
+              }
+            },
+            icon: const Icon(Icons.check_circle),
+            label: const Text('Mark Picked Up'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green,
+              foregroundColor: Colors.white,
+            ),
+          ),
+          ElevatedButton.icon(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogCtx);
               _navigateToLocation(lat, lon, email);
               setState(() {
                 _routePoints = null;
@@ -925,6 +1236,11 @@ class _CollectorHomeState extends State<CollectorHome> {
       appBar: AppBar(
         title: const Text('Collector Portal'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_outline),
+            tooltip: 'Profile',
+            onPressed: _showCollectorProfileSheet,
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
@@ -965,111 +1281,99 @@ class _CollectorHomeState extends State<CollectorHome> {
 
     return Column(
       children: [
+        // Shift status bar
         Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           color: _isOnShift ? Colors.green[50] : Colors.grey[100],
-          child: Column(
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Icon(
-                    _isOnShift ? Icons.check_circle : Icons.circle_outlined,
-                    color: _isOnShift ? Colors.green : Colors.grey,
-                    size: 32,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _isOnShift ? 'On Shift' : 'Off Shift',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          _isOnShift
-                              ? (_currentAreaCode != null
-                                  ? 'Area: $_currentAreaCode • Broadcasting location every 10s'
-                                  : 'Broadcasting location every 10 seconds')
-                              : 'Tap the button below to start your shift',
-                          style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+              Icon(
+                _isOnShift ? Icons.check_circle : Icons.circle_outlined,
+                color: _isOnShift ? Colors.green : Colors.grey,
+                size: 26,
               ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _toggleShift,
-                  icon: Icon(_isOnShift ? Icons.stop : Icons.play_arrow),
-                  label: Text(_isOnShift ? 'Stop Shift' : 'Start Shift'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isOnShift ? Colors.red : Colors.green,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    textStyle: const TextStyle(fontSize: 18),
-                  ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _isOnShift ? 'On Shift' : 'Off Shift',
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    Text(
+                      _isOnShift
+                          ? (_currentAreaCode != null
+                              ? 'Area: $_currentAreaCode • Broadcasting every 10s'
+                              : 'Broadcasting location every 10 seconds')
+                          : 'Tap button to start your shift',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton.icon(
+                onPressed: _toggleShift,
+                icon: Icon(_isOnShift ? Icons.stop : Icons.play_arrow, size: 18),
+                label: Text(_isOnShift ? 'Stop' : 'Start'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _isOnShift ? Colors.red : Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
               ),
             ],
           ),
         ),
+        // Full-screen map
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 280,
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
-                    builder: (context, snapshot) {
-                      List<Map<String, dynamic>> residents = [];
-                      if (snapshot.hasData) {
-                        residents = snapshot.data!.docs
-                            .map((doc) => doc.data() as Map<String, dynamic>)
-                            .where((data) => data['latitude'] != null && data['longitude'] != null)
-                            .toList();
-                      }
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
+            builder: (context, snapshot) {
+              List<Map<String, dynamic>> residents = [];
+              if (snapshot.hasData) {
+                residents = snapshot.data!.docs
+                    .map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      data['uid'] = doc.id;
+                      return data;
+                    })
+                    .where((data) => data['latitude'] != null && data['longitude'] != null)
+                    .toList();
+              }
 
-                      return Stack(
-                        children: [
-                          _buildMap(residents),
-                          if (snapshot.connectionState == ConnectionState.waiting)
-                            const Center(child: CircularProgressIndicator()),
-                          if (snapshot.hasData && residents.isEmpty && !_isOnShift)
-                            Center(
-                              child: Card(
-                                margin: const EdgeInsets.all(16),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
-                                      const SizedBox(height: 12),
-                                      const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Residents will appear here once they set their location',
-                                        style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
-                                  ),
-                                ),
+              return Stack(
+                children: [
+                  _buildMap(residents),
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    const Center(child: CircularProgressIndicator()),
+                  if (snapshot.hasData && residents.isEmpty && !_isOnShift)
+                    Center(
+                      child: Card(
+                        margin: const EdgeInsets.all(16),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                              const SizedBox(height: 12),
+                              const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Residents will appear here once they set their location',
+                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                textAlign: TextAlign.center,
                               ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ],
