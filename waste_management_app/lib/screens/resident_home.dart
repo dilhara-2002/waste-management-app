@@ -894,19 +894,7 @@ class _ResidentHomeState extends State<ResidentHome> {
 
           const Text('Upcoming Collection', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
-                child: const Text('Oct\n24', textAlign: TextAlign.center, style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-              ),
-              title: const Text('Domestic Waste', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Tomorrow, 08:00 AM - 10:00 AM'),
-              trailing: const Icon(Icons.local_shipping),
-            ),
-          ),
+          _buildUpcomingCollectionCard(),
 
           const SizedBox(height: 18),
           const Text('Community Updates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
@@ -2266,6 +2254,117 @@ class _ResidentHomeState extends State<ResidentHome> {
       }
     }
     return newest;
+  }
+
+  Map<String, dynamic>? _findNearestUpcomingSchedule(List<Map<String, dynamic>> schedules, String residentAreaCode) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    DateTime? nearestDate;
+    Map<String, dynamic>? nearest;
+
+    for (final schedule in schedules) {
+      final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
+      final areaMatches = residentAreaCode.isEmpty ||
+          scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
+      if (!areaMatches) continue;
+
+      final scheduleDate = _resolveScheduleDate(schedule);
+      if (scheduleDate == null) continue;
+
+      final scheduleDayOnly = DateTime(scheduleDate.year, scheduleDate.month, scheduleDate.day);
+      if (scheduleDayOnly.isBefore(today)) continue;
+
+      if (nearestDate == null || scheduleDayOnly.isBefore(nearestDate)) {
+        nearestDate = scheduleDayOnly;
+        nearest = schedule;
+      }
+    }
+
+    return nearest;
+  }
+
+  Widget _buildUpcomingCollectionCard() {
+    final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
+    if (residentAreaCode.isEmpty) {
+      return Card(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ListTile(
+          leading: Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+            child: const Icon(Icons.calendar_month, color: Colors.green),
+          ),
+          title: const Text('Upcoming collection unavailable', style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: const Text('Set your area code to see the nearest schedule.'),
+          trailing: const Icon(Icons.info_outline),
+        ),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: _firestore.collection('schedules').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final sourceSchedules = snapshot.hasData
+            ? snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList()
+            : <Map<String, dynamic>>[];
+
+        final schedules = sourceSchedules.isNotEmpty ? sourceSchedules : _fallbackSchedules();
+        final nextSchedule = _findNearestUpcomingSchedule(schedules, residentAreaCode);
+
+        if (nextSchedule == null) {
+          return Card(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+                child: const Icon(Icons.event_busy, color: Colors.green),
+              ),
+              title: const Text('No upcoming schedule found', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Check back later or update your area code.'),
+              trailing: const Icon(Icons.local_shipping_outlined),
+            ),
+          );
+        }
+
+        final date = _resolveScheduleDate(nextSchedule) ?? DateTime.now();
+        final wasteType = (nextSchedule['wasteType'] ?? 'Collection').toString();
+        final time = (nextSchedule['time'] ?? '08:00 AM - 10:00 AM').toString();
+        final areaName = (nextSchedule['areaName'] ?? '').toString();
+        final dayLabel = _formatCardDate(date);
+
+        return Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: ListTile(
+            leading: Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+              child: Text(
+                '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+              ),
+            ),
+            title: Text(wasteType, style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('$dayLabel • ${_formatTimeRange(time)}${areaName.isNotEmpty ? '\n$areaName' : ''}'),
+            isThreeLine: areaName.isNotEmpty,
+            trailing: const Icon(Icons.local_shipping),
+            onTap: () {
+              setState(() {
+                _currentIndex = 2;
+              });
+            },
+          ),
+        );
+      },
+    );
   }
 
   DateTime? _resolveScheduleDate(Map<String, dynamic> schedule) {
