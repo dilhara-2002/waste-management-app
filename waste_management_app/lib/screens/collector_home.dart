@@ -1336,7 +1336,18 @@ class _CollectorHomeState extends State<CollectorHome> {
         // Full-screen map
         Expanded(
           child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('users').where('role', isEqualTo: 'resident').snapshots(),
+            stream: _isOnShift
+                // On shift: only residents in the collector's area code
+                ? _firestore
+                    .collection('users')
+                    .where('role', isEqualTo: 'resident')
+                    .where('areaCode', isEqualTo: _currentAreaCode ?? '')
+                    .snapshots()
+                // Off shift: all residents with a pickup point set
+                : _firestore
+                    .collection('users')
+                    .where('role', isEqualTo: 'resident')
+                    .snapshots(),
             builder: (context, snapshot) {
               List<Map<String, dynamic>> residents = [];
               if (snapshot.hasData) {
@@ -1355,7 +1366,7 @@ class _CollectorHomeState extends State<CollectorHome> {
                   _buildMap(residents),
                   if (snapshot.connectionState == ConnectionState.waiting)
                     const Center(child: CircularProgressIndicator()),
-                  if (snapshot.hasData && residents.isEmpty && !_isOnShift)
+                  if (snapshot.hasData && residents.isEmpty)
                     Center(
                       child: Card(
                         margin: const EdgeInsets.all(16),
@@ -1366,10 +1377,17 @@ class _CollectorHomeState extends State<CollectorHome> {
                             children: [
                               Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
                               const SizedBox(height: 12),
-                              const Text('No pickup points yet', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              Text(
+                                _isOnShift
+                                    ? 'No pickup points in Area $_currentAreaCode'
+                                    : 'No pickup points yet',
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
                               const SizedBox(height: 8),
                               Text(
-                                'Residents will appear here once they set their location',
+                                _isOnShift
+                                    ? 'Residents in this area will appear here once they set their location.'
+                                    : 'Residents will appear here once they set their location.',
                                 style: TextStyle(fontSize: 14, color: Colors.grey[600]),
                                 textAlign: TextAlign.center,
                               ),
@@ -1383,9 +1401,13 @@ class _CollectorHomeState extends State<CollectorHome> {
             },
           ),
         ),
+
+
       ],
     );
   }
+
+
 
   Widget _buildScheduleManagementCard() {
     return Container(
