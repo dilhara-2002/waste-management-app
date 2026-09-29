@@ -58,7 +58,15 @@ class _ResidentHomeState extends State<ResidentHome> {
   StreamSubscription<QuerySnapshot>? _notifSubscription;
   bool _notifListenerInitialized = false;
   String? _notifResidentAreaCode;
+  StreamSubscription<QuerySnapshot>? _userNotifSubscription;
+  bool _userNotifListenerInitialized = false;
+  // Merged, sorted, capped-at-10 notification list for the Alerts tab
+  List<Map<String, dynamic>> _cachedNotifications = [];
+  // Separate backing lists so merging is cheap on each update
+  List<Map<String, dynamic>> _areaNotifications = [];
+  List<Map<String, dynamic>> _userNotifications = [];
   StreamSubscription<dynamic>? _truckSubscription;
+  StreamSubscription<dynamic>? _userDocSubscription; // real-time listener on own user doc
 
   @override
   void initState() {
@@ -70,100 +78,232 @@ class _ResidentHomeState extends State<ResidentHome> {
   @override
   void dispose() {
     _notifSubscription?.cancel();
+    _userNotifSubscription?.cancel();
     _truckSubscription?.cancel();
+    _userDocSubscription?.cancel();
     _scheduleScrollController.dispose();
     super.dispose();
   }
 
+  /// One-time fetch used for initial data only (before listener starts).
   Future<void> _loadUserData() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
-      final doc = await _firestore.collection('users').doc(user.uid).get();
-      if (doc.exists && mounted) {
-        setState(() {
-          _userData = doc.data();
-        });
-        if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
-          final lat = _userData!['latitude'] as double;
-          final lon = _userData!['longitude'] as double;
-          _mapController.move(LatLng(lat, lon), 15.0);
-        }
-        _fetchRoute(); // Fetch route when user data loads
-        // Start notification listener and truck listener (will avoid re-subscribing if area same)
-        _startNotificationListener();
-        _listenToTruckLocation();
-      }
+      _startUserDocListener(user.uid);
     }
+  }
+
+  /// Starts a real-time listener on the resident's own user document.
+  /// This ensures the pickup point disappears immediately when the collector
+  /// clears the resident's latitude/longitude from Firestore.
+  void _startUserDocListener(String uid) {
+    if (_userDocSubscription != null) return; // already listening
+    _userDocSubscription = _firestore
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .listen((docSnapshot) {
+      if (!mounted) return;
+      if (!docSnapshot.exists) return;
+
+      final newData = docSnapshot.data() as Map<String, dynamic>?;
+      if (newData == null) return;
+
+      final previousLat = _userData?['latitude'];
+      final newLat = newData['latitude'];
+
+      setState(() {
+        _userData = newData;
+      });
+
+      // If latitude just became available, pan map to it
+      if (newLat != null && previousLat == null) {
+        final lat = newLat as double;
+        final lon = newData['longitude'] as double;
+        _mapController.move(LatLng(lat, lon), 15.0);
+      }
+
+      // If location was cleared (collector confirmed pickup),
+      // clear route and reset map to default position
+      if (newLat == null && previousLat != null) {
+        setState(() {
+          _routePoints = null;
+          _routeDistance = null;
+          _routeDuration = null;
+        });
+        _mapController.move(const LatLng(6.9271, 79.8612), 15.0);
+      }
+
+      // Refresh route and dependent listeners whenever user data changes
+      _fetchRoute();
+      _startNotificationListener();
+      _listenToTruckLocation();
+    });
+  }
+
+  /// Merges _areaNotifications and _userNotifications, sorts newest-first,
+  /// caps at 10, and stores into _cachedNotifications.
+  void _rebuildNotifCache() {
+    final all = <Map<String, dynamic>>[..._areaNotifications, ..._userNotifications];
+    all.sort((a, b) {
+      final aTs = a['createdAt'] as Timestamp?;
+      final bTs = b['createdAt'] as Timestamp?;
+      if (aTs == null && bTs == null) return 0;
+      if (aTs == null) return 1;
+      if (bTs == null) return -1;
+      return bTs.compareTo(aTs);
+    });
+    _cachedNotifications = all.length > 10 ? all.sublist(0, 10) : all;
   }
 
   void _startNotificationListener() {
     final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
-    if (residentAreaCode.isEmpty) return;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final userId = currentUser?.uid ?? '';
 
-    // If already listening for the same area, do nothing
-    if (_notifSubscription != null && _notifResidentAreaCode == residentAreaCode) return;
+    // ── Area-wide notification listener ───────────────────────────────────────
+    if (residentAreaCode.isNotEmpty &&
+        !(_notifSubscription != null && _notifResidentAreaCode == residentAreaCode)) {
+      _notifSubscription?.cancel();
+      _notifListenerInitialized = false;
+      _notifResidentAreaCode = residentAreaCode;
+      _lastAlertViewedAt = DateTime.now();
 
-    // Cancel previous subscription and reset init flag
-    _notifSubscription?.cancel();
-    _notifListenerInitialized = false;
-    _notifResidentAreaCode = residentAreaCode;
-    _lastAlertViewedAt = DateTime.now();
+      _notifSubscription = _firestore
+          .collection('notifications')
+          .where('areaCode', isEqualTo: residentAreaCode)
+          .snapshots()
+          .listen((snapshot) {
+        if (!mounted) return;
 
-    _notifSubscription = _firestore
-        .collection('notifications')
-        .where('areaCode', isEqualTo: residentAreaCode)
-        .snapshots()
-        .listen((snapshot) {
-      if (!mounted) return;
-
-      // The first snapshot delivers all existing documents as `added` — ignore
-      if (!_notifListenerInitialized) {
-        _notifListenerInitialized = true;
-        return;
-      }
-
-      for (final change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final data = change.doc.data() as Map<String, dynamic>?;
+        // Build area notifications list from the full snapshot
+        final areaList = <Map<String, dynamic>>[];
+        for (final doc in snapshot.docs) {
+          final data = doc.data() as Map<String, dynamic>?;
           if (data == null) continue;
-
-          final timestamp = data['createdAt'] as Timestamp?;
-          final createdAt = timestamp?.toDate();
-          final title = (data['title'] ?? 'Notification').toString();
-          final body = (data['body'] ?? '').toString();
-
-          if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
-            setState(() {
-              _newAlertCount += 1;
-            });
-          }
-
-          if (mounted && _currentIndex != 4) {
-            showDialog(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: Text(title),
-                content: Text(body),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      setState(() {
-                        _newAlertCount = 0;
-                        _lastAlertViewedAt = DateTime.now();
-                        _currentIndex = 4;
-                      });
-                    },
-                    child: const Text('View'),
-                  ),
-                ],
-              ),
-            );
-          }
+          // Skip user-specific notifications (keyed by userId)
+          if ((data['userId'] ?? '').toString().isNotEmpty) continue;
+          areaList.add(data);
         }
-      }
-    });
+
+        // Detect newly added docs for badge + popup (skip first snapshot)
+        if (_notifListenerInitialized) {
+          for (final change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final data = change.doc.data() as Map<String, dynamic>?;
+              if (data == null) continue;
+              if ((data['userId'] ?? '').toString().isNotEmpty) continue;
+
+              final timestamp = data['createdAt'] as Timestamp?;
+              final createdAt = timestamp?.toDate();
+              final title = (data['title'] ?? 'Notification').toString();
+              final body = (data['body'] ?? '').toString();
+
+              if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
+                _newAlertCount += 1;
+              }
+
+              if (_currentIndex != 4) {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(title),
+                    content: Text(body),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            _newAlertCount = 0;
+                            _lastAlertViewedAt = DateTime.now();
+                            _currentIndex = 4;
+                          });
+                        },
+                        child: const Text('View'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            }
+          }
+        } else {
+          _notifListenerInitialized = true;
+        }
+
+        setState(() {
+          _areaNotifications = areaList;
+          _rebuildNotifCache();
+        });
+      });
+    }
+
+    // ── Per-user notification listener (e.g. bin_collected) ──────────────────
+    if (userId.isNotEmpty && _userNotifSubscription == null) {
+      _userNotifListenerInitialized = false;
+      _userNotifSubscription = _firestore
+          .collection('notifications')
+          .where('userId', isEqualTo: userId)
+          .snapshots()
+          .listen((snapshot) {
+        if (!mounted) return;
+
+        final userList = snapshot.docs
+            .map((doc) => doc.data() as Map<String, dynamic>)
+            .toList();
+
+        // Detect newly added docs for badge + popup (skip first snapshot)
+        if (_userNotifListenerInitialized) {
+          for (final change in snapshot.docChanges) {
+            if (change.type == DocumentChangeType.added) {
+              final data = change.doc.data() as Map<String, dynamic>?;
+              if (data == null) continue;
+
+              final timestamp = data['createdAt'] as Timestamp?;
+              final createdAt = timestamp?.toDate();
+              final title = (data['title'] ?? 'Notification').toString();
+              final body = (data['body'] ?? '').toString();
+
+              if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
+                _newAlertCount += 1;
+              }
+
+              if (_currentIndex != 4) {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: Text(title),
+                    content: Text(body),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          setState(() {
+                            _newAlertCount = 0;
+                            _lastAlertViewedAt = DateTime.now();
+                            _currentIndex = 4;
+                          });
+                        },
+                        child: const Text('View'),
+                      ),
+                    ],
+                  ),
+                );
+              }
+            }
+          }
+        } else {
+          _userNotifListenerInitialized = true;
+        }
+
+        setState(() {
+          _userNotifications = userList;
+          _rebuildNotifCache();
+        });
+      });
+    }
   }
 
   Future<void> _fetchRoute() async {
@@ -1694,167 +1834,139 @@ class _ResidentHomeState extends State<ResidentHome> {
 
         const Divider(height: 1),
 
-        // Notifications list filtered by resident's area code
+        // Notifications list: merged area-wide + user-specific, latest 10 only
         Expanded(
-          child: residentAreaCode.isEmpty
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.notifications_off_outlined, size: 56, color: Colors.grey[400]),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'No area code set',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Set your area code in your profile to receive notifications.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.grey[600]),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : StreamBuilder<QuerySnapshot>(
-                  // Single-field query — no composite index needed on Android
-                  stream: _firestore
-                      .collection('notifications')
-                      .where('areaCode', isEqualTo: residentAreaCode)
-                      .snapshots(),
-                  builder: (context, snapshot) {
-                    List<Map<String, dynamic>> docs = [];
-                    if (snapshot.hasData) {
-                      docs = snapshot.data!.docs
-                          .map((d) => d.data() as Map<String, dynamic>)
-                          .toList()
-                        ..sort((a, b) {
-                          final aTs = a['createdAt'];
-                          final bTs = b['createdAt'];
-                          if (aTs == null && bTs == null) return 0;
-                          if (aTs == null) return 1;
-                          if (bTs == null) return -1;
-                          return (bTs as Timestamp).compareTo(aTs as Timestamp);
-                        });
-                    }
-
-                    if (snapshot.connectionState == ConnectionState.waiting && docs.isEmpty) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-
-                    if (docs.isEmpty) {
-                      return Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.notifications_none, size: 56, color: Colors.grey[300]),
-                              const SizedBox(height: 16),
-                              Text(
-                                'No notifications for Area $residentAreaCode yet.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey[600]),
-                              ),
-                              const SizedBox(height: 8),
-                              Text(
-                                'You will be notified when the truck starts or a schedule is updated.',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    }
-
-                    return ListView.builder(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: docs.length,
-                      itemBuilder: (context, index) {
-                        final data = docs[index];
-                        final title = data['title'] ?? 'Notification';
-                        final body = data['body'] ?? '';
-                        final type = (data['type'] ?? '').toString().toLowerCase();
-                        final createdAt = data['createdAt'] as Timestamp?;
-
-                        Color leftColor;
-                        IconData icon;
-                        if (type == 'shift_start') {
-                          leftColor = Colors.green;
-                          icon = Icons.local_shipping;
-                        } else if (type == 'schedule_update' || type == 'schedule_add') {
-                          leftColor = Colors.blue;
-                          icon = Icons.calendar_month;
-                        } else {
-                          leftColor = Colors.orange;
-                          icon = Icons.notifications;
-                        }
-
-                        String timeText = '';
-                        if (createdAt != null) {
-                          final dt = createdAt.toDate();
-                          final diff = DateTime.now().difference(dt);
-                          if (diff.inDays >= 1) {
-                            timeText = '${dt.day}/${dt.month}/${dt.year}';
-                          } else if (diff.inHours >= 1) {
-                            timeText = '${diff.inHours}h ago';
-                          } else if (diff.inMinutes >= 1) {
-                            timeText = '${diff.inMinutes}m ago';
-                          } else {
-                            timeText = 'just now';
-                          }
-                        }
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 12),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 84,
-                                decoration: BoxDecoration(
-                                  color: leftColor,
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Card(
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                  child: ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: leftColor.withValues(alpha: 0.12),
-                                      child: Icon(icon, color: leftColor),
-                                    ),
-                                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                    subtitle: Text(body),
-                                    trailing: Text(
-                                      timeText,
-                                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
+          child: _buildNotificationsContent(residentAreaCode),
         ),
       ],
     );
   }
 
+  /// Builds the notifications list from the cached state.
+  /// The cache is populated by _notifSubscription (area-wide) and
+  /// _userNotifSubscription (per-user / bin_collected). No extra Firestore
+  /// listeners are created here.
+  Widget _buildNotificationsContent(String residentAreaCode) {
+    final docs = _cachedNotifications;
+
+    if (docs.isEmpty) {
+      // Show a spinner briefly while listeners initialise
+      final listenersStarted = _notifListenerInitialized || _userNotifListenerInitialized;
+      if (!listenersStarted) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.notifications_none, size: 56, color: Colors.grey[300]),
+              const SizedBox(height: 16),
+              Text(
+                residentAreaCode.isNotEmpty
+                    ? 'No notifications for Area $residentAreaCode yet.'
+                    : 'No notifications yet.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600]),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'You will be notified when the truck starts, a schedule is updated, or your bins are collected.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[500], fontSize: 12),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: docs.length,
+      itemBuilder: (context, index) {
+        final data = docs[index];
+        final title = (data['title'] ?? 'Notification').toString();
+        final body = (data['body'] ?? '').toString();
+        final type = (data['type'] ?? '').toString().toLowerCase();
+        final createdAt = data['createdAt'] as Timestamp?;
+
+        Color leftColor;
+        IconData icon;
+        if (type == 'bin_collected') {
+          leftColor = const Color(0xFF00897B); // teal
+          icon = Icons.check_circle;
+        } else if (type == 'shift_start') {
+          leftColor = Colors.green;
+          icon = Icons.local_shipping;
+        } else if (type == 'schedule_update' || type == 'schedule_add') {
+          leftColor = Colors.blue;
+          icon = Icons.calendar_month;
+        } else {
+          leftColor = Colors.orange;
+          icon = Icons.notifications;
+        }
+
+        String timeText = '';
+        if (createdAt != null) {
+          final dt = createdAt.toDate();
+          final diff = DateTime.now().difference(dt);
+          if (diff.inDays >= 1) {
+            timeText = '${dt.day}/${dt.month}/${dt.year}';
+          } else if (diff.inHours >= 1) {
+            timeText = '${diff.inHours}h ago';
+          } else if (diff.inMinutes >= 1) {
+            timeText = '${diff.inMinutes}m ago';
+          } else {
+            timeText = 'just now';
+          }
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            children: [
+              Container(
+                width: 6,
+                height: 84,
+                decoration: BoxDecoration(
+                  color: leftColor,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: leftColor.withValues(alpha: 0.12),
+                      child: Icon(icon, color: leftColor),
+                    ),
+                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    subtitle: Text(body),
+                    trailing: Text(
+                      timeText,
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+
   Widget _buildMapTab() {
+
     return Stack(
       children: [
         _buildMap(),
+
         // Set Location Button
         Positioned(
           top: 16,

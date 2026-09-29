@@ -1047,20 +1047,16 @@ class _CollectorHomeState extends State<CollectorHome> {
   }
 
   Future<void> _deleteResidentPickupPoint(Map<String, dynamic> resident) async {
-    // Use set() with merge instead of update() to avoid potential permission edge cases.
-    // Setting latitude/longitude to null effectively removes them from queries.
+    // Use FieldValue.delete() via update() to fully remove the location fields.
     final removePayload = <String, dynamic>{
-      'latitude': null,
-      'longitude': null,
+      'latitude': FieldValue.delete(),
+      'longitude': FieldValue.delete(),
       'locationUpdated': FieldValue.serverTimestamp(),
     };
 
     final userId = resident['uid'] as String? ?? '';
     if (userId.isNotEmpty) {
-      await _firestore.collection('users').doc(userId).set(
-        removePayload,
-        SetOptions(merge: true),
-      );
+      await _firestore.collection('users').doc(userId).update(removePayload);
       return;
     }
 
@@ -1073,12 +1069,10 @@ class _CollectorHomeState extends State<CollectorHome> {
         .limit(1)
         .get();
     if (query.docs.isNotEmpty) {
-      await query.docs.first.reference.set(
-        removePayload,
-        SetOptions(merge: true),
-      );
+      await query.docs.first.reference.update(removePayload);
     }
   }
+
 
   Future<void> _showPickupDialog(Map<String, dynamic> resident) async {
     final lat = resident['latitude'] as double?;
@@ -1183,9 +1177,21 @@ class _CollectorHomeState extends State<CollectorHome> {
               if (confirmed == true) {
                 try {
                   await _deleteResidentPickupPoint(resident);
+                  // Send a personal notification to the resident that their bin was collected
+                  final residentUid = resident['uid'] as String? ?? '';
+                  final residentAreaCode = resident['areaCode'] as String? ?? _currentAreaCode ?? '';
+                  if (residentUid.isNotEmpty) {
+                    await NotificationService.sendToUser(
+                      userId: residentUid,
+                      areaCode: residentAreaCode,
+                      title: '✅ Bin Collected!',
+                      body: 'Your waste bins have been successfully collected by the collector. Thank you for being ready!',
+                      type: 'bin_collected',
+                    );
+                  }
                   if (mounted) {
                     ScaffoldMessenger.of(widgetContext).showSnackBar(
-                      SnackBar(content: Text('Pickup point for $email removed.')),
+                      SnackBar(content: Text('Pickup confirmed and resident notified for $email.')),
                     );
                   }
                 } catch (e) {
