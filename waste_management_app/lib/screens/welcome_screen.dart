@@ -39,6 +39,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
         Navigator.pushReplacementNamed(context, '/resident');
       } else if (role == 'collector') {
         Navigator.pushReplacementNamed(context, '/collector');
+      } else if (role == 'admin') {
+        Navigator.pushReplacementNamed(context, '/admin');
       }
     } catch (e) {
       // If error, just stay on welcome screen
@@ -163,6 +165,25 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                   ),
                   const SizedBox(height: 32),
 
+                  // Admin Portal access
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.pushNamed(context, '/admin-signin');
+                    },
+                    icon: Icon(
+                      Icons.admin_panel_settings_outlined,
+                      color: Colors.white.withOpacity(0.55),
+                      size: 18,
+                    ),
+                    label: Text(
+                      'Admin Portal',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.55),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
                   
                 ],
               ),

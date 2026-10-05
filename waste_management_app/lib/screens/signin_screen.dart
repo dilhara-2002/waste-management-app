@@ -89,6 +89,8 @@ class _SignInScreenState extends State<SignInScreen> {
           Navigator.pushReplacementNamed(context, '/resident');
         } else if (role == 'collector') {
           Navigator.pushReplacementNamed(context, '/collector');
+        } else if (role == 'admin') {
+          Navigator.pushReplacementNamed(context, '/admin');
         } else if (role == null || role.isEmpty) {
           _showSnackBar('Your account exists, but your role is not set. Please register again or contact support.', isError: true);
           await _auth.signOut();

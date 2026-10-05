@@ -9,6 +9,9 @@ import 'screens/role_selection_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/resident_home.dart';
 import 'screens/collector_home.dart';
+import 'screens/admin_signin_screen.dart';
+import 'screens/admin_signup_screen.dart';
+import 'screens/admin_home.dart';
 
 import 'package:flutter/foundation.dart';
 
@@ -52,6 +55,9 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/resident': (context) => const ResidentHome(),
         '/collector': (context) => const CollectorHome(),
+        '/admin': (context) => const AdminHome(),
+        '/admin-signin': (context) => const AdminSignInScreen(),
+        '/admin-signup': (context) => const AdminSignUpScreen(),
         // Aliases for legacy register screen routes
         '/resident_home': (context) => const ResidentHome(),
         '/collector_home': (context) => const CollectorHome(),
