@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'dart:convert';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -639,6 +640,9 @@ class _AdminHomeState extends State<AdminHome>
     final type = (data['type'] ?? 'Issue') as String;
     final description = (data['description'] ?? '') as String;
     final userId = (data['userId'] ?? '') as String;
+    final userName = (data['userName'] ?? '') as String;
+    final userEmail = (data['userEmail'] ?? '') as String;
+    final photoBase64 = (data['photoBase64'] ?? '') as String;
     final ts = data['createdAt'] as Timestamp?;
 
     return Container(
@@ -697,35 +701,103 @@ class _AdminHomeState extends State<AdminHome>
                     height: 1.4),
               ),
             ),
-          if (userId.isNotEmpty)
+          // Photo attachment
+          if (photoBase64.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: FutureBuilder<DocumentSnapshot>(
-                future:
-                    _firestore.collection('users').doc(userId).get(),
-                builder: (ctx, snap) {
-                  String name = userId;
-                  if (snap.hasData && snap.data != null && snap.data!.exists) {
-                    final d = snap.data!.data() as Map<String, dynamic>?;
-                    name = (d?['name'] as String?) ?? userId;
-                  }
-                  return Row(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: GestureDetector(
+                onTap: () => _showReportPhotoDialog(photoBase64),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Stack(
                     children: [
-                      Icon(Icons.person_outline,
-                          size: 14,
-                          color: Colors.white.withOpacity(0.35)),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Submitted by: $name',
-                        style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
-                            fontSize: 12),
+                      Builder(builder: (_) {
+                        try {
+                          return Image.memory(
+                            base64Decode(photoBase64),
+                            width: double.infinity,
+                            height: 160,
+                            fit: BoxFit.cover,
+                          );
+                        } catch (_) {
+                          return Container(
+                            height: 80,
+                            color: const Color(0xFF2E3D5E),
+                            child: const Center(
+                              child: Text('Image unavailable',
+                                  style: TextStyle(color: Colors.white54)),
+                            ),
+                          );
+                        }
+                      }),
+                      Positioned(
+                        bottom: 8,
+                        right: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                              SizedBox(width: 4),
+                              Text('Tap to expand',
+                                  style: TextStyle(color: Colors.white, fontSize: 11)),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
-                  );
-                },
+                  ),
+                ),
               ),
             ),
+          // Submitted by
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: userName.isNotEmpty
+                ? Row(
+                    children: [
+                      Icon(Icons.person_outline,
+                          size: 14, color: Colors.white.withOpacity(0.35)),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          'Submitted by: $userName${userEmail.isNotEmpty ? ' ($userEmail)' : ''}',
+                          style: TextStyle(
+                              color: Colors.white.withOpacity(0.4), fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  )
+                : userId.isNotEmpty
+                    ? FutureBuilder<DocumentSnapshot>(
+                        future: _firestore.collection('users').doc(userId).get(),
+                        builder: (ctx, snap) {
+                          String name = userId;
+                          if (snap.hasData && snap.data != null && snap.data!.exists) {
+                            final d = snap.data!.data() as Map<String, dynamic>?;
+                            name = (d?['name'] as String?) ?? userId;
+                          }
+                          return Row(
+                            children: [
+                              Icon(Icons.person_outline,
+                                  size: 14, color: Colors.white.withOpacity(0.35)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'Submitted by: $name',
+                                style: TextStyle(
+                                    color: Colors.white.withOpacity(0.4), fontSize: 12),
+                              ),
+                            ],
+                          );
+                        },
+                      )
+                    : const SizedBox.shrink(),
+          ),
           const SizedBox(height: 12),
           Divider(height: 1, color: const Color(0xFF2E3D5E)),
           Padding(
@@ -757,6 +829,47 @@ class _AdminHomeState extends State<AdminHome>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showReportPhotoDialog(String photoBase64) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black87,
+        insetPadding: const EdgeInsets.all(16),
+        child: Stack(
+          children: [
+            Center(
+              child: InteractiveViewer(
+                minScale: 1,
+                maxScale: 4,
+                child: Builder(builder: (_) {
+                  try {
+                    return Image.memory(
+                      base64Decode(photoBase64),
+                      fit: BoxFit.contain,
+                    );
+                  } catch (_) {
+                    return const Center(
+                      child: Text('Cannot display image',
+                          style: TextStyle(color: Colors.white)),
+                    );
+                  }
+                }),
+              ),
+            ),
+            Positioned(
+              top: 8,
+              right: 8,
+              child: IconButton(
+                onPressed: () => Navigator.pop(ctx),
+                icon: const Icon(Icons.close, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -836,6 +949,8 @@ class _AdminHomeState extends State<AdminHome>
     final message = (data['message'] ?? '') as String;
     final userId = (data['userId'] ?? '') as String;
     final ts = data['createdAt'] as Timestamp?;
+    final savedName = (data['userName'] ?? '') as String;
+    final savedEmail = (data['userEmail'] ?? '') as String;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -864,25 +979,37 @@ class _AdminHomeState extends State<AdminHome>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    FutureBuilder<DocumentSnapshot?>(
-                      future: userId.isNotEmpty
-                          ? _firestore.collection('users').doc(userId).get()
-                          : Future<DocumentSnapshot?>.value(null),
-                      builder: (ctx, snap) {
-                        String name = 'Anonymous';
-                        if (snap.hasData &&
-                            snap.data != null &&
-                            snap.data!.exists) {
-                          final d = snap.data!.data() as Map<String, dynamic>?;
-                          name = (d?['name'] as String?) ?? 'Anonymous';
-                        }
-                        return Text(name,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
-                                fontSize: 14));
-                      },
-                    ),
+                    if (savedName.isNotEmpty) ...[
+                      Text(savedName,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14)),
+                      if (savedEmail.isNotEmpty)
+                        Text(savedEmail,
+                            style: TextStyle(
+                                color: Colors.white.withOpacity(0.4),
+                                fontSize: 11)),
+                    ] else
+                      FutureBuilder<DocumentSnapshot?>(
+                        future: userId.isNotEmpty
+                            ? _firestore.collection('users').doc(userId).get()
+                            : Future<DocumentSnapshot?>.value(null),
+                        builder: (ctx, snap) {
+                          String name = 'Anonymous';
+                          if (snap.hasData &&
+                              snap.data != null &&
+                              snap.data!.exists) {
+                            final d = snap.data!.data() as Map<String, dynamic>?;
+                            name = (d?['name'] as String?) ?? 'Anonymous';
+                          }
+                          return Text(name,
+                              style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 14));
+                        },
+                      ),
                     if (ts != null)
                       Text(_formatDate(ts.toDate()),
                           style: TextStyle(

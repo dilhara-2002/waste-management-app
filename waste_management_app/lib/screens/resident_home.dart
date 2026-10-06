@@ -4,8 +4,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:typed_data';
 import '../utils/geo_helper.dart';
 import '../services/routing_service.dart';
 import 'segregation_guide.dart';
@@ -50,8 +52,12 @@ class _ResidentHomeState extends State<ResidentHome> {
   DateTime? _lastAlertViewedAt;
   int _supportTabIndex = 0; // 0: Report Issue, 1: Give Feedback
   String _selectedIssueType = 'Missed Pickup';
-  String _reportDescription = '';
-  String _feedbackMessage = '';
+  // Photo attachment for report
+  Uint8List? _reportImageBytes;
+  bool _isSubmittingReport = false;
+  bool _isSubmittingFeedback = false;
+  final TextEditingController _reportDescController = TextEditingController();
+  final TextEditingController _feedbackMsgController = TextEditingController();
   // Cached community posts to prevent blinking on Firestore real-time updates
   List<Map<String, dynamic>>? _communityPosts;
   bool _isRefreshing = false;
@@ -82,6 +88,8 @@ class _ResidentHomeState extends State<ResidentHome> {
     _truckSubscription?.cancel();
     _userDocSubscription?.cancel();
     _scheduleScrollController.dispose();
+    _reportDescController.dispose();
+    _feedbackMsgController.dispose();
     super.dispose();
   }
 
@@ -1435,8 +1443,8 @@ class _ResidentHomeState extends State<ResidentHome> {
                         border: Border.all(color: const Color(0xFFE4EAF1)),
                       ),
                       child: TextField(
+                        controller: _reportDescController,
                         maxLines: 5,
-                        onChanged: (value) => _reportDescription = value,
                         decoration: const InputDecoration(
                           hintText: 'Please describe the issue in detail...',
                           hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
@@ -1455,33 +1463,69 @@ class _ResidentHomeState extends State<ResidentHome> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(vertical: 28),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF4F7FB),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFDCE5EF), style: BorderStyle.solid),
-                      ),
-                      child: const Column(
-                        children: [
-                          Icon(Icons.camera_alt_outlined, size: 34, color: Color(0xFF90A0B5)),
-                          SizedBox(height: 8),
-                          Text(
-                            'Tap to upload photo',
-                            style: TextStyle(
-                              color: Color(0xFF6E839C),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                    GestureDetector(
+                      onTap: _pickReportImage,
+                      child: Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF4F7FB),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFDCE5EF), style: BorderStyle.solid),
+                        ),
+                        child: _reportImageBytes != null
+                            ? Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(13),
+                                    child: Image.memory(
+                                      _reportImageBytes!,
+                                      width: double.infinity,
+                                      height: 160,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () => setState(() => _reportImageBytes = null),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.black54,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(Icons.close, color: Colors.white, size: 18),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 28),
+                                child: Column(
+                                  children: [
+                                    Icon(Icons.camera_alt_outlined, size: 34, color: Color(0xFF90A0B5)),
+                                    SizedBox(height: 8),
+                                    Text(
+                                      'Tap to upload photo (camera or gallery)',
+                                      style: TextStyle(
+                                        color: Color(0xFF6E839C),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _primaryActionButton(
-                      label: 'Submit Report',
-                      onTap: _submitReport,
-                    ),
+                    _isSubmittingReport
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFF18B984)))
+                        : _primaryActionButton(
+                            label: 'Submit Report',
+                            onTap: _submitReport,
+                          ),
                   ] else ...[
                     const Text(
                       'Share Your Feedback',
@@ -1499,8 +1543,8 @@ class _ResidentHomeState extends State<ResidentHome> {
                         border: Border.all(color: const Color(0xFFE4EAF1)),
                       ),
                       child: TextField(
+                        controller: _feedbackMsgController,
                         maxLines: 6,
-                        onChanged: (value) => _feedbackMessage = value,
                         decoration: const InputDecoration(
                           hintText: 'Tell us how we can improve your collection experience...',
                           hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
@@ -1510,10 +1554,12 @@ class _ResidentHomeState extends State<ResidentHome> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    _primaryActionButton(
-                      label: 'Submit Feedback',
-                      onTap: _submitFeedback,
-                    ),
+                    _isSubmittingFeedback
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFF18B984)))
+                        : _primaryActionButton(
+                            label: 'Submit Feedback',
+                            onTap: _submitFeedback,
+                          ),
                   ],
                 ],
               ),
@@ -1603,6 +1649,59 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
+  /// Opens a dialog to choose camera or gallery, then sets _reportImageBytes.
+  Future<void> _pickReportImage() async {
+    if (!mounted) return;
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF18B984)),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(ctx, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF18B984)),
+              title: const Text('Choose from Gallery'),
+              onTap: () => Navigator.pop(ctx, ImageSource.gallery),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+
+    if (source == null) return;
+
+    try {
+      final picker = ImagePicker();
+      final xFile = await picker.pickImage(
+        source: source,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
+      if (xFile == null) return;
+      final bytes = await xFile.readAsBytes();
+      if (mounted) {
+        setState(() => _reportImageBytes = bytes);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not pick image: $e')),
+        );
+      }
+    }
+  }
+
   Future<void> _showIssueTypePicker() async {
     final issueTypes = [
       'Missed Pickup',
@@ -1646,7 +1745,7 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   Future<void> _submitReport() async {
-    if (_reportDescription.trim().isEmpty) {
+    if (_reportDescController.text.trim().isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please add a description before submitting.')),
@@ -1655,35 +1754,55 @@ class _ResidentHomeState extends State<ResidentHome> {
       return;
     }
 
+    setState(() => _isSubmittingReport = true);
     final user = FirebaseAuth.instance.currentUser;
     try {
-      await _firestore.collection('reports').add({
+      // Encode image to base64 if present
+      String? photoBase64;
+      if (_reportImageBytes != null) {
+        photoBase64 = base64Encode(_reportImageBytes!);
+      }
+
+      final data = <String, dynamic>{
         'type': _selectedIssueType,
-        'description': _reportDescription.trim(),
+        'description': _reportDescController.text.trim(),
         'status': 'Submitted',
-        'userId': user?.uid,
+        'userId': user?.uid ?? '',
+        'userName': _userData?['name'] ?? '',
+        'userEmail': user?.email ?? '',
         'createdAt': FieldValue.serverTimestamp(),
-      });
+      };
+      if (photoBase64 != null) {
+        data['photoBase64'] = photoBase64;
+      }
+
+      await _firestore.collection('reports').add(data);
 
       if (mounted) {
         setState(() {
-          _reportDescription = '';
+          _reportDescController.clear();
+          _reportImageBytes = null;
+          _isSubmittingReport = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Report submitted successfully.')),
+          const SnackBar(
+            content: Text('✅ Report submitted successfully!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isSubmittingReport = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not submit report. Saved locally in this session.')),
+          SnackBar(content: Text('Could not submit report: $e')),
         );
       }
     }
   }
 
   Future<void> _submitFeedback() async {
-    if (_feedbackMessage.trim().isEmpty) {
+    if (_feedbackMsgController.text.trim().isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Please enter your feedback message.')),
@@ -1692,26 +1811,34 @@ class _ResidentHomeState extends State<ResidentHome> {
       return;
     }
 
+    setState(() => _isSubmittingFeedback = true);
     final user = FirebaseAuth.instance.currentUser;
     try {
       await _firestore.collection('feedback').add({
-        'message': _feedbackMessage.trim(),
-        'userId': user?.uid,
+        'message': _feedbackMsgController.text.trim(),
+        'userId': user?.uid ?? '',
+        'userName': _userData?['name'] ?? '',
+        'userEmail': user?.email ?? '',
         'createdAt': FieldValue.serverTimestamp(),
       });
 
       if (mounted) {
         setState(() {
-          _feedbackMessage = '';
+          _feedbackMsgController.clear();
+          _isSubmittingFeedback = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Feedback submitted. Thank you!')),
+          const SnackBar(
+            content: Text('✅ Feedback submitted. Thank you!'),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isSubmittingFeedback = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not submit feedback right now.')),
+          SnackBar(content: Text('Could not submit feedback: $e')),
         );
       }
     }
