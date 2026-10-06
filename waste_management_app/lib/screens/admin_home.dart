@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'dart:convert';
+import '../widgets/admin_content_manager.dart';
 
 class AdminHome extends StatefulWidget {
   const AdminHome({super.key});
@@ -16,7 +17,6 @@ class _AdminHomeState extends State<AdminHome>
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
-  int _currentTab = 0; // 0: Dashboard, 1: Reports, 2: Feedback, 3: Users
   Map<String, dynamic>? _adminData;
   late TabController _tabController;
 
@@ -35,12 +35,7 @@ class _AdminHomeState extends State<AdminHome>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
-    _tabController.addListener(() {
-      if (_tabController.indexIsChanging) {
-        setState(() => _currentTab = _tabController.index);
-      }
-    });
+    _tabController = TabController(length: 5, vsync: this);
     _loadAdminData();
     _subscribeToStats();
   }
@@ -67,16 +62,14 @@ class _AdminHomeState extends State<AdminHome>
 
   void _subscribeToStats() {
     // Reports stats
-    _reportsSub = _firestore
-        .collection('reports')
-        .snapshots()
-        .listen((snapshot) {
+    _reportsSub = _firestore.collection('reports').snapshots().listen((
+      snapshot,
+    ) {
       if (!mounted) return;
       final docs = snapshot.docs;
       int pending = 0, resolved = 0;
       for (final doc in docs) {
-        final status =
-            ((doc.data()['status'] ?? '') as String).toLowerCase();
+        final status = ((doc.data()['status'] ?? '') as String).toLowerCase();
         if (status.contains('resolved')) {
           resolved++;
         } else {
@@ -91,19 +84,15 @@ class _AdminHomeState extends State<AdminHome>
     });
 
     // Feedback stats
-    _feedbackSub = _firestore
-        .collection('feedback')
-        .snapshots()
-        .listen((snapshot) {
+    _feedbackSub = _firestore.collection('feedback').snapshots().listen((
+      snapshot,
+    ) {
       if (!mounted) return;
       setState(() => _totalFeedback = snapshot.docs.length);
     });
 
     // Users stats
-    _usersSub = _firestore
-        .collection('users')
-        .snapshots()
-        .listen((snapshot) {
+    _usersSub = _firestore.collection('users').snapshots().listen((snapshot) {
       if (!mounted) return;
       int collectors = 0;
       for (final doc in snapshot.docs) {
@@ -118,26 +107,30 @@ class _AdminHomeState extends State<AdminHome>
 
   Future<void> _updateReportStatus(String docId, String newStatus) async {
     try {
-      await _firestore
-          .collection('reports')
-          .doc(docId)
-          .update({'status': newStatus});
+      await _firestore.collection('reports').doc(docId).update({
+        'status': newStatus,
+      });
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Status updated to "$newStatus"'),
-          backgroundColor: const Color(0xFF388E3C),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Status updated to "$newStatus"'),
+            backgroundColor: const Color(0xFF388E3C),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to update: $e'),
-          backgroundColor: const Color(0xFFD32F2F),
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to update: $e'),
+            backgroundColor: const Color(0xFFD32F2F),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     }
   }
@@ -146,21 +139,72 @@ class _AdminHomeState extends State<AdminHome>
     try {
       await _firestore.collection('feedback').doc(docId).delete();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('Feedback deleted.'),
-          backgroundColor: const Color(0xFF388E3C),
-          behavior: SnackBarBehavior.floating,
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Feedback deleted.'),
+            backgroundColor: const Color(0xFF388E3C),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Failed to delete: $e'),
-          backgroundColor: const Color(0xFFD32F2F),
-          behavior: SnackBarBehavior.floating,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to delete: $e'),
+            backgroundColor: const Color(0xFFD32F2F),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _confirmDeleteReport(String docId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E2A45),
+        title: const Text(
+          'Delete Report',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Remove this report permanently?',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text(
+              'Delete',
+              style: TextStyle(color: Color(0xFFEF5350)),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await _firestore.collection('reports').doc(docId).delete();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Report deleted.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete report: $e')));
       }
     }
   }
@@ -190,6 +234,7 @@ class _AdminHomeState extends State<AdminHome>
                 _buildReportsTab(),
                 _buildFeedbackTab(),
                 _buildUsersTab(),
+                const AdminContentManager(),
               ],
             ),
           ),
@@ -234,8 +279,11 @@ class _AdminHomeState extends State<AdminHome>
                 ),
               ],
             ),
-            child: const Icon(Icons.admin_panel_settings,
-                color: Colors.white, size: 24),
+            child: const Icon(
+              Icons.admin_panel_settings,
+              color: Colors.white,
+              size: 24,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -275,24 +323,29 @@ class _AdminHomeState extends State<AdminHome>
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E2A45),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Sign Out',
-            style: TextStyle(color: Colors.white)),
-        content: Text('Are you sure you want to sign out?',
-            style: TextStyle(color: Colors.white.withOpacity(0.7))),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Sign Out', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to sign out?',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel',
-                style: TextStyle(color: Colors.white.withOpacity(0.5))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withOpacity(0.5)),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sign Out',
-                style: TextStyle(
-                    color: Color(0xFF7C83FD),
-                    fontWeight: FontWeight.w700)),
+            child: const Text(
+              'Sign Out',
+              style: TextStyle(
+                color: Color(0xFF7C83FD),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -308,6 +361,7 @@ class _AdminHomeState extends State<AdminHome>
       (Icons.article_outlined, 'Reports'),
       (Icons.feedback_outlined, 'Feedback'),
       (Icons.people_outline, 'Users'),
+      (Icons.edit_calendar_outlined, 'Content'),
     ];
 
     return Container(
@@ -318,8 +372,7 @@ class _AdminHomeState extends State<AdminHome>
         indicatorWeight: 3,
         labelColor: const Color(0xFF7C83FD),
         unselectedLabelColor: const Color(0xFF8A9BB5),
-        labelStyle:
-            const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+        labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
         tabs: tabs
             .map((t) => Tab(icon: Icon(t.$1, size: 20), text: t.$2))
             .toList(),
@@ -346,18 +399,42 @@ class _AdminHomeState extends State<AdminHome>
             physics: const NeverScrollableScrollPhysics(),
             childAspectRatio: 1.5,
             children: [
-              _statCard('Total Reports', '$_totalReports',
-                  Icons.article_rounded, const Color(0xFF5C6BC0)),
-              _statCard('Pending', '$_pendingReports',
-                  Icons.pending_actions_rounded, const Color(0xFFF57C00)),
-              _statCard('Resolved', '$_resolvedReports',
-                  Icons.check_circle_rounded, const Color(0xFF388E3C)),
-              _statCard('Feedback', '$_totalFeedback',
-                  Icons.star_rounded, const Color(0xFFAB47BC)),
-              _statCard('Total Users', '$_totalUsers',
-                  Icons.people_rounded, const Color(0xFF0288D1)),
-              _statCard('Collectors', '$_totalCollectors',
-                  Icons.local_shipping_rounded, const Color(0xFFE53935)),
+              _statCard(
+                'Total Reports',
+                '$_totalReports',
+                Icons.article_rounded,
+                const Color(0xFF5C6BC0),
+              ),
+              _statCard(
+                'Pending',
+                '$_pendingReports',
+                Icons.pending_actions_rounded,
+                const Color(0xFFF57C00),
+              ),
+              _statCard(
+                'Resolved',
+                '$_resolvedReports',
+                Icons.check_circle_rounded,
+                const Color(0xFF388E3C),
+              ),
+              _statCard(
+                'Feedback',
+                '$_totalFeedback',
+                Icons.star_rounded,
+                const Color(0xFFAB47BC),
+              ),
+              _statCard(
+                'Total Users',
+                '$_totalUsers',
+                Icons.people_rounded,
+                const Color(0xFF0288D1),
+              ),
+              _statCard(
+                'Collectors',
+                '$_totalCollectors',
+                Icons.local_shipping_rounded,
+                const Color(0xFFE53935),
+              ),
             ],
           ),
           const SizedBox(height: 24),
@@ -373,8 +450,7 @@ class _AdminHomeState extends State<AdminHome>
     );
   }
 
-  Widget _statCard(
-      String label, String value, IconData icon, Color color) {
+  Widget _statCard(String label, String value, IconData icon, Color color) {
     return Container(
       decoration: BoxDecoration(
         color: const Color(0xFF1A2438),
@@ -452,9 +528,7 @@ class _AdminHomeState extends State<AdminHome>
     final status = (data['status'] ?? 'Submitted') as String;
     final type = (data['type'] ?? 'Issue') as String;
     final ts = data['createdAt'] as Timestamp?;
-    final dateStr = ts != null
-        ? _formatDate(ts.toDate())
-        : 'Just now';
+    final dateStr = ts != null ? _formatDate(ts.toDate()) : 'Just now';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -472,22 +546,32 @@ class _AdminHomeState extends State<AdminHome>
               color: const Color(0xFF5C6BC0).withOpacity(0.15),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(Icons.article_outlined,
-                color: Color(0xFF7C83FD), size: 18),
+            child: const Icon(
+              Icons.article_outlined,
+              color: Color(0xFF7C83FD),
+              size: 18,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(type,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600)),
-                Text(dateStr,
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.4), fontSize: 12)),
+                Text(
+                  type,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  dateStr,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.4),
+                    fontSize: 12,
+                  ),
+                ),
               ],
             ),
           ),
@@ -529,8 +613,11 @@ class _AdminHomeState extends State<AdminHome>
                       color: const Color(0xFFAB47BC).withOpacity(0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.feedback_outlined,
-                        color: Color(0xFFAB47BC), size: 18),
+                    child: const Icon(
+                      Icons.feedback_outlined,
+                      color: Color(0xFFAB47BC),
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -538,20 +625,22 @@ class _AdminHomeState extends State<AdminHome>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          msg.length > 80
-                              ? '${msg.substring(0, 80)}...'
-                              : msg,
+                          msg.length > 80 ? '${msg.substring(0, 80)}...' : msg,
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.85),
-                              fontSize: 13),
+                            color: Colors.white.withOpacity(0.85),
+                            fontSize: 13,
+                          ),
                         ),
                         if (ts != null) ...[
                           const SizedBox(height: 4),
-                          Text(_formatDate(ts.toDate()),
-                              style: TextStyle(
-                                  color: Colors.white.withOpacity(0.4),
-                                  fontSize: 12)),
-                        ]
+                          Text(
+                            _formatDate(ts.toDate()),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -573,20 +662,26 @@ class _AdminHomeState extends State<AdminHome>
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              const Icon(Icons.article_rounded,
-                  color: Color(0xFF7C83FD), size: 22),
+              const Icon(
+                Icons.article_rounded,
+                color: Color(0xFF7C83FD),
+                size: 22,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'All Reports',
                 style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800),
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF5C6BC0).withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -594,9 +689,10 @@ class _AdminHomeState extends State<AdminHome>
                 child: Text(
                   '$_totalReports total',
                   style: const TextStyle(
-                      color: Color(0xFF7C83FD),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
+                    color: Color(0xFF7C83FD),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -611,12 +707,14 @@ class _AdminHomeState extends State<AdminHome>
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                    child: CircularProgressIndicator(
-                        color: Color(0xFF7C83FD)));
+                  child: CircularProgressIndicator(color: Color(0xFF7C83FD)),
+                );
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return _emptyScreen(Icons.article_outlined,
-                    'No reports submitted yet');
+                return _emptyScreen(
+                  Icons.article_outlined,
+                  'No reports submitted yet',
+                );
               }
 
               return ListView.builder(
@@ -665,28 +763,46 @@ class _AdminHomeState extends State<AdminHome>
                     color: const Color(0xFF5C6BC0).withOpacity(0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.report_problem_outlined,
-                      color: Color(0xFF7C83FD), size: 20),
+                  child: const Icon(
+                    Icons.report_problem_outlined,
+                    color: Color(0xFF7C83FD),
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(type,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 15)),
+                      Text(
+                        type,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
                       if (ts != null)
-                        Text(_formatDate(ts.toDate()),
-                            style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 12)),
+                        Text(
+                          _formatDate(ts.toDate()),
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 12,
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 _statusChip(status),
+                IconButton(
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Color(0xFFEF5350),
+                    size: 20,
+                  ),
+                  tooltip: 'Delete report',
+                  onPressed: () => _confirmDeleteReport(docId),
+                ),
               ],
             ),
           ),
@@ -696,9 +812,10 @@ class _AdminHomeState extends State<AdminHome>
               child: Text(
                 description,
                 style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 13,
-                    height: 1.4),
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 13,
+                  height: 1.4,
+                ),
               ),
             ),
           // Photo attachment
@@ -711,30 +828,47 @@ class _AdminHomeState extends State<AdminHome>
                   borderRadius: BorderRadius.circular(12),
                   child: Stack(
                     children: [
-                      Builder(builder: (_) {
-                        try {
-                          return Image.memory(
-                            base64Decode(photoBase64),
-                            width: double.infinity,
-                            height: 160,
-                            fit: BoxFit.cover,
-                          );
-                        } catch (_) {
-                          return Container(
-                            height: 80,
-                            color: const Color(0xFF2E3D5E),
-                            child: const Center(
-                              child: Text('Image unavailable',
-                                  style: TextStyle(color: Colors.white54)),
-                            ),
-                          );
-                        }
-                      }),
+                      Builder(
+                        builder: (_) {
+                          try {
+                            return Image.memory(
+                              base64Decode(photoBase64),
+                              width: double.infinity,
+                              height: 160,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  Container(
+                                    height: 80,
+                                    color: const Color(0xFF2E3D5E),
+                                    alignment: Alignment.center,
+                                    child: const Text(
+                                      'Image unavailable',
+                                      style: TextStyle(color: Colors.white54),
+                                    ),
+                                  ),
+                            );
+                          } catch (_) {
+                            return Container(
+                              height: 80,
+                              color: const Color(0xFF2E3D5E),
+                              child: const Center(
+                                child: Text(
+                                  'Image unavailable',
+                                  style: TextStyle(color: Colors.white54),
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                      ),
                       Positioned(
                         bottom: 8,
                         right: 8,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(8),
@@ -742,10 +876,19 @@ class _AdminHomeState extends State<AdminHome>
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.zoom_in, color: Colors.white, size: 14),
+                              Icon(
+                                Icons.zoom_in,
+                                color: Colors.white,
+                                size: 14,
+                              ),
                               SizedBox(width: 4),
-                              Text('Tap to expand',
-                                  style: TextStyle(color: Colors.white, fontSize: 11)),
+                              Text(
+                                'Tap to expand',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -761,42 +904,54 @@ class _AdminHomeState extends State<AdminHome>
             child: userName.isNotEmpty
                 ? Row(
                     children: [
-                      Icon(Icons.person_outline,
-                          size: 14, color: Colors.white.withOpacity(0.35)),
+                      Icon(
+                        Icons.person_outline,
+                        size: 14,
+                        color: Colors.white.withOpacity(0.35),
+                      ),
                       const SizedBox(width: 4),
                       Expanded(
                         child: Text(
                           'Submitted by: $userName${userEmail.isNotEmpty ? ' ($userEmail)' : ''}',
                           style: TextStyle(
-                              color: Colors.white.withOpacity(0.4), fontSize: 12),
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 12,
+                          ),
                         ),
                       ),
                     ],
                   )
                 : userId.isNotEmpty
-                    ? FutureBuilder<DocumentSnapshot>(
-                        future: _firestore.collection('users').doc(userId).get(),
-                        builder: (ctx, snap) {
-                          String name = userId;
-                          if (snap.hasData && snap.data != null && snap.data!.exists) {
-                            final d = snap.data!.data() as Map<String, dynamic>?;
-                            name = (d?['name'] as String?) ?? userId;
-                          }
-                          return Row(
-                            children: [
-                              Icon(Icons.person_outline,
-                                  size: 14, color: Colors.white.withOpacity(0.35)),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Submitted by: $name',
-                                style: TextStyle(
-                                    color: Colors.white.withOpacity(0.4), fontSize: 12),
-                              ),
-                            ],
-                          );
-                        },
-                      )
-                    : const SizedBox.shrink(),
+                ? FutureBuilder<DocumentSnapshot>(
+                    future: _firestore.collection('users').doc(userId).get(),
+                    builder: (ctx, snap) {
+                      String name = userId;
+                      if (snap.hasData &&
+                          snap.data != null &&
+                          snap.data!.exists) {
+                        final d = snap.data!.data() as Map<String, dynamic>?;
+                        name = (d?['name'] as String?) ?? userId;
+                      }
+                      return Row(
+                        children: [
+                          Icon(
+                            Icons.person_outline,
+                            size: 14,
+                            color: Colors.white.withOpacity(0.35),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Submitted by: $name',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  )
+                : const SizedBox.shrink(),
           ),
           const SizedBox(height: 12),
           Divider(height: 1, color: const Color(0xFF2E3D5E)),
@@ -845,19 +1000,23 @@ class _AdminHomeState extends State<AdminHome>
               child: InteractiveViewer(
                 minScale: 1,
                 maxScale: 4,
-                child: Builder(builder: (_) {
-                  try {
-                    return Image.memory(
-                      base64Decode(photoBase64),
-                      fit: BoxFit.contain,
-                    );
-                  } catch (_) {
-                    return const Center(
-                      child: Text('Cannot display image',
-                          style: TextStyle(color: Colors.white)),
-                    );
-                  }
-                }),
+                child: Builder(
+                  builder: (_) {
+                    try {
+                      return Image.memory(
+                        base64Decode(photoBase64),
+                        fit: BoxFit.contain,
+                      );
+                    } catch (_) {
+                      return const Center(
+                        child: Text(
+                          'Cannot display image',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }
+                  },
+                ),
               ),
             ),
             Positioned(
@@ -883,20 +1042,26 @@ class _AdminHomeState extends State<AdminHome>
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              const Icon(Icons.feedback_rounded,
-                  color: Color(0xFFAB47BC), size: 22),
+              const Icon(
+                Icons.feedback_rounded,
+                color: Color(0xFFAB47BC),
+                size: 22,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'Resident Feedback',
                 style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800),
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFAB47BC).withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -904,9 +1069,10 @@ class _AdminHomeState extends State<AdminHome>
                 child: Text(
                   '$_totalFeedback total',
                   style: const TextStyle(
-                      color: Color(0xFFAB47BC),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
+                    color: Color(0xFFAB47BC),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -921,12 +1087,14 @@ class _AdminHomeState extends State<AdminHome>
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                    child: CircularProgressIndicator(
-                        color: Color(0xFFAB47BC)));
+                  child: CircularProgressIndicator(color: Color(0xFFAB47BC)),
+                );
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return _emptyScreen(Icons.feedback_outlined,
-                    'No feedback submitted yet');
+                return _emptyScreen(
+                  Icons.feedback_outlined,
+                  'No feedback submitted yet',
+                );
               }
 
               return ListView.builder(
@@ -971,8 +1139,11 @@ class _AdminHomeState extends State<AdminHome>
                   color: const Color(0xFFAB47BC).withOpacity(0.15),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.chat_bubble_outline,
-                    color: Color(0xFFAB47BC), size: 18),
+                child: const Icon(
+                  Icons.chat_bubble_outline,
+                  color: Color(0xFFAB47BC),
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -980,16 +1151,22 @@ class _AdminHomeState extends State<AdminHome>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (savedName.isNotEmpty) ...[
-                      Text(savedName,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 14)),
+                      Text(
+                        savedName,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
                       if (savedEmail.isNotEmpty)
-                        Text(savedEmail,
-                            style: TextStyle(
-                                color: Colors.white.withOpacity(0.4),
-                                fontSize: 11)),
+                        Text(
+                          savedEmail,
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.4),
+                            fontSize: 11,
+                          ),
+                        ),
                     ] else
                       FutureBuilder<DocumentSnapshot?>(
                         future: userId.isNotEmpty
@@ -1000,27 +1177,37 @@ class _AdminHomeState extends State<AdminHome>
                           if (snap.hasData &&
                               snap.data != null &&
                               snap.data!.exists) {
-                            final d = snap.data!.data() as Map<String, dynamic>?;
+                            final d =
+                                snap.data!.data() as Map<String, dynamic>?;
                             name = (d?['name'] as String?) ?? 'Anonymous';
                           }
-                          return Text(name,
-                              style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14));
+                          return Text(
+                            name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 14,
+                            ),
+                          );
                         },
                       ),
                     if (ts != null)
-                      Text(_formatDate(ts.toDate()),
-                          style: TextStyle(
-                              color: Colors.white.withOpacity(0.4),
-                              fontSize: 12)),
+                      Text(
+                        _formatDate(ts.toDate()),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.4),
+                          fontSize: 12,
+                        ),
+                      ),
                   ],
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.delete_outline,
-                    color: Color(0xFFEF5350), size: 20),
+                icon: const Icon(
+                  Icons.delete_outline,
+                  color: Color(0xFFEF5350),
+                  size: 20,
+                ),
                 tooltip: 'Delete',
                 onPressed: () => _confirmDeleteFeedback(docId),
               ),
@@ -1030,9 +1217,10 @@ class _AdminHomeState extends State<AdminHome>
           Text(
             message,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.8),
-                fontSize: 14,
-                height: 1.5),
+              color: Colors.white.withOpacity(0.8),
+              fontSize: 14,
+              height: 1.5,
+            ),
           ),
         ],
       ),
@@ -1044,24 +1232,32 @@ class _AdminHomeState extends State<AdminHome>
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF1E2A45),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Delete Feedback',
-            style: TextStyle(color: Colors.white)),
-        content: Text('Remove this feedback entry?',
-            style: TextStyle(color: Colors.white.withOpacity(0.7))),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Delete Feedback',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Remove this feedback entry?',
+          style: TextStyle(color: Colors.white.withOpacity(0.7)),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel',
-                style: TextStyle(color: Colors.white.withOpacity(0.5))),
+            child: Text(
+              'Cancel',
+              style: TextStyle(color: Colors.white.withOpacity(0.5)),
+            ),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete',
-                style: TextStyle(
-                    color: Color(0xFFEF5350),
-                    fontWeight: FontWeight.w700)),
+            child: const Text(
+              'Delete',
+              style: TextStyle(
+                color: Color(0xFFEF5350),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
           ),
         ],
       ),
@@ -1078,20 +1274,26 @@ class _AdminHomeState extends State<AdminHome>
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              const Icon(Icons.people_rounded,
-                  color: Color(0xFF0288D1), size: 22),
+              const Icon(
+                Icons.people_rounded,
+                color: Color(0xFF0288D1),
+                size: 22,
+              ),
               const SizedBox(width: 8),
               const Text(
                 'All Users',
                 style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800),
+                  color: Colors.white,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
               const Spacer(),
               Container(
                 padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 4),
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF0288D1).withOpacity(0.2),
                   borderRadius: BorderRadius.circular(20),
@@ -1099,9 +1301,10 @@ class _AdminHomeState extends State<AdminHome>
                 child: Text(
                   '$_totalUsers total',
                   style: const TextStyle(
-                      color: Color(0xFF0288D1),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600),
+                    color: Color(0xFF0288D1),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -1116,12 +1319,11 @@ class _AdminHomeState extends State<AdminHome>
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(
-                    child: CircularProgressIndicator(
-                        color: Color(0xFF0288D1)));
+                  child: CircularProgressIndicator(color: Color(0xFF0288D1)),
+                );
               }
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return _emptyScreen(
-                    Icons.people_outline, 'No users found');
+                return _emptyScreen(Icons.people_outline, 'No users found');
               }
 
               return ListView.builder(
@@ -1187,31 +1389,42 @@ class _AdminHomeState extends State<AdminHome>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(name,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 14)),
-                Text(email,
-                    style: TextStyle(
-                        color: Colors.white.withOpacity(0.5),
-                        fontSize: 12)),
+                Text(
+                  name,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                Text(
+                  email,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.5),
+                    fontSize: 12,
+                  ),
+                ),
                 if (phone.isNotEmpty)
-                  Text(phone,
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.4),
-                          fontSize: 12)),
+                  Text(
+                    phone,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.4),
+                      fontSize: 12,
+                    ),
+                  ),
                 if (ts != null)
-                  Text('Joined ${_formatDate(ts.toDate())}',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.3),
-                          fontSize: 11)),
+                  Text(
+                    'Joined ${_formatDate(ts.toDate())}',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.3),
+                      fontSize: 11,
+                    ),
+                  ),
               ],
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 10, vertical: 4),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
               color: roleColor.withOpacity(0.15),
               borderRadius: BorderRadius.circular(20),
@@ -1220,9 +1433,10 @@ class _AdminHomeState extends State<AdminHome>
             child: Text(
               role[0].toUpperCase() + role.substring(1),
               style: TextStyle(
-                  color: roleColor,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600),
+                color: roleColor,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -1255,8 +1469,7 @@ class _AdminHomeState extends State<AdminHome>
       color = const Color(0xFF5C6BC0);
     }
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
         color: color.withOpacity(0.15),
         borderRadius: BorderRadius.circular(20),
@@ -1265,20 +1478,30 @@ class _AdminHomeState extends State<AdminHome>
       child: Text(
         status,
         style: TextStyle(
-            color: color, fontSize: 12, fontWeight: FontWeight.w600),
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
 
   Widget _actionBtn(
-      String label, IconData icon, Color color, VoidCallback onTap) {
+    String label,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return TextButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 16, color: color),
       label: Text(
         label,
         style: TextStyle(
-            color: color, fontSize: 12, fontWeight: FontWeight.w600),
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
@@ -1287,8 +1510,7 @@ class _AdminHomeState extends State<AdminHome>
   }
 
   Widget _dividerV() {
-    return Container(
-        width: 1, height: 24, color: const Color(0xFF2E3D5E));
+    return Container(width: 1, height: 24, color: const Color(0xFF2E3D5E));
   }
 
   Widget _emptyCard(String text) {
@@ -1302,8 +1524,7 @@ class _AdminHomeState extends State<AdminHome>
       child: Center(
         child: Text(
           text,
-          style: TextStyle(
-              color: Colors.white.withOpacity(0.4), fontSize: 14),
+          style: TextStyle(color: Colors.white.withOpacity(0.4), fontSize: 14),
         ),
       ),
     );
@@ -1319,7 +1540,9 @@ class _AdminHomeState extends State<AdminHome>
           Text(
             text,
             style: TextStyle(
-                color: Colors.white.withOpacity(0.3), fontSize: 16),
+              color: Colors.white.withOpacity(0.3),
+              fontSize: 16,
+            ),
           ),
         ],
       ),
@@ -1328,8 +1551,18 @@ class _AdminHomeState extends State<AdminHome>
 
   String _formatDate(DateTime dt) {
     final months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
   }

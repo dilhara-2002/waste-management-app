@@ -47,7 +47,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   List<LatLng>? _routePoints;
   num? _routeDistance;
   num? _routeDuration;
-  int _notificationFilterIndex = 0; // 0: All, 1: Reminders, 2: Updates, 3: Alerts
+  int _notificationFilterIndex =
+      0; // 0: All, 1: Reminders, 2: Updates, 3: Alerts
   int _newAlertCount = 0;
   DateTime? _lastAlertViewedAt;
   int _supportTabIndex = 0; // 0: Report Issue, 1: Give Feedback
@@ -72,7 +73,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   List<Map<String, dynamic>> _areaNotifications = [];
   List<Map<String, dynamic>> _userNotifications = [];
   StreamSubscription<dynamic>? _truckSubscription;
-  StreamSubscription<dynamic>? _userDocSubscription; // real-time listener on own user doc
+  StreamSubscription<dynamic>?
+  _userDocSubscription; // real-time listener on own user doc
 
   @override
   void initState() {
@@ -111,48 +113,51 @@ class _ResidentHomeState extends State<ResidentHome> {
         .doc(uid)
         .snapshots()
         .listen((docSnapshot) {
-      if (!mounted) return;
-      if (!docSnapshot.exists) return;
+          if (!mounted) return;
+          if (!docSnapshot.exists) return;
 
-      final newData = docSnapshot.data() as Map<String, dynamic>?;
-      if (newData == null) return;
+          final newData = docSnapshot.data() as Map<String, dynamic>?;
+          if (newData == null) return;
 
-      final previousLat = _userData?['latitude'];
-      final newLat = newData['latitude'];
+          final previousLat = _userData?['latitude'];
+          final newLat = newData['latitude'];
 
-      setState(() {
-        _userData = newData;
-      });
+          setState(() {
+            _userData = newData;
+          });
 
-      // If latitude just became available, pan map to it
-      if (newLat != null && previousLat == null) {
-        final lat = newLat as double;
-        final lon = newData['longitude'] as double;
-        _mapController.move(LatLng(lat, lon), 15.0);
-      }
+          // If latitude just became available, pan map to it
+          if (newLat != null && previousLat == null) {
+            final lat = newLat as double;
+            final lon = newData['longitude'] as double;
+            _mapController.move(LatLng(lat, lon), 15.0);
+          }
 
-      // If location was cleared (collector confirmed pickup),
-      // clear route and reset map to default position
-      if (newLat == null && previousLat != null) {
-        setState(() {
-          _routePoints = null;
-          _routeDistance = null;
-          _routeDuration = null;
+          // If location was cleared (collector confirmed pickup),
+          // clear route and reset map to default position
+          if (newLat == null && previousLat != null) {
+            setState(() {
+              _routePoints = null;
+              _routeDistance = null;
+              _routeDuration = null;
+            });
+            _mapController.move(const LatLng(6.9271, 79.8612), 15.0);
+          }
+
+          // Refresh route and dependent listeners whenever user data changes
+          _fetchRoute();
+          _startNotificationListener();
+          _listenToTruckLocation();
         });
-        _mapController.move(const LatLng(6.9271, 79.8612), 15.0);
-      }
-
-      // Refresh route and dependent listeners whenever user data changes
-      _fetchRoute();
-      _startNotificationListener();
-      _listenToTruckLocation();
-    });
   }
 
   /// Merges _areaNotifications and _userNotifications, sorts newest-first,
   /// caps at 10, and stores into _cachedNotifications.
   void _rebuildNotifCache() {
-    final all = <Map<String, dynamic>>[..._areaNotifications, ..._userNotifications];
+    final all = <Map<String, dynamic>>[
+      ..._areaNotifications,
+      ..._userNotifications,
+    ];
     all.sort((a, b) {
       final aTs = a['createdAt'] as Timestamp?;
       final bTs = b['createdAt'] as Timestamp?;
@@ -171,7 +176,8 @@ class _ResidentHomeState extends State<ResidentHome> {
 
     // ── Area-wide notification listener ───────────────────────────────────────
     if (residentAreaCode.isNotEmpty &&
-        !(_notifSubscription != null && _notifResidentAreaCode == residentAreaCode)) {
+        !(_notifSubscription != null &&
+            _notifResidentAreaCode == residentAreaCode)) {
       _notifSubscription?.cancel();
       _notifListenerInitialized = false;
       _notifResidentAreaCode = residentAreaCode;
@@ -182,69 +188,74 @@ class _ResidentHomeState extends State<ResidentHome> {
           .where('areaCode', isEqualTo: residentAreaCode)
           .snapshots()
           .listen((snapshot) {
-        if (!mounted) return;
+            if (!mounted) return;
 
-        // Build area notifications list from the full snapshot
-        final areaList = <Map<String, dynamic>>[];
-        for (final doc in snapshot.docs) {
-          final data = doc.data() as Map<String, dynamic>?;
-          if (data == null) continue;
-          // Skip user-specific notifications (keyed by userId)
-          if ((data['userId'] ?? '').toString().isNotEmpty) continue;
-          areaList.add(data);
-        }
-
-        // Detect newly added docs for badge + popup (skip first snapshot)
-        if (_notifListenerInitialized) {
-          for (final change in snapshot.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final data = change.doc.data() as Map<String, dynamic>?;
+            // Build area notifications list from the full snapshot
+            final areaList = <Map<String, dynamic>>[];
+            for (final doc in snapshot.docs) {
+              final data = doc.data() as Map<String, dynamic>?;
               if (data == null) continue;
+              // Skip user-specific notifications (keyed by userId)
               if ((data['userId'] ?? '').toString().isNotEmpty) continue;
-
-              final timestamp = data['createdAt'] as Timestamp?;
-              final createdAt = timestamp?.toDate();
-              final title = (data['title'] ?? 'Notification').toString();
-              final body = (data['body'] ?? '').toString();
-
-              if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
-                _newAlertCount += 1;
-              }
-
-              if (_currentIndex != 4) {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text(title),
-                    content: Text(body),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          setState(() {
-                            _newAlertCount = 0;
-                            _lastAlertViewedAt = DateTime.now();
-                            _currentIndex = 4;
-                          });
-                        },
-                        child: const Text('View'),
-                      ),
-                    ],
-                  ),
-                );
-              }
+              areaList.add(data);
             }
-          }
-        } else {
-          _notifListenerInitialized = true;
-        }
 
-        setState(() {
-          _areaNotifications = areaList;
-          _rebuildNotifCache();
-        });
-      });
+            // Detect newly added docs for badge + popup (skip first snapshot)
+            if (_notifListenerInitialized) {
+              for (final change in snapshot.docChanges) {
+                if (change.type == DocumentChangeType.added) {
+                  final data = change.doc.data() as Map<String, dynamic>?;
+                  if (data == null) continue;
+                  if ((data['userId'] ?? '').toString().isNotEmpty) continue;
+
+                  final timestamp = data['createdAt'] as Timestamp?;
+                  final createdAt = timestamp?.toDate();
+                  final title = (data['title'] ?? 'Notification').toString();
+                  final body = (data['body'] ?? '').toString();
+
+                  if (_lastAlertViewedAt == null ||
+                      createdAt == null ||
+                      createdAt.isAfter(_lastAlertViewedAt!)) {
+                    _newAlertCount += 1;
+                  }
+
+                  if (_currentIndex != 4) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(title),
+                        content: Text(body),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Dismiss'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              setState(() {
+                                _newAlertCount = 0;
+                                _lastAlertViewedAt = DateTime.now();
+                                _currentIndex = 4;
+                              });
+                            },
+                            child: const Text('View'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                }
+              }
+            } else {
+              _notifListenerInitialized = true;
+            }
+
+            setState(() {
+              _areaNotifications = areaList;
+              _rebuildNotifCache();
+            });
+          });
     }
 
     // ── Per-user notification listener (e.g. bin_collected) ──────────────────
@@ -255,62 +266,67 @@ class _ResidentHomeState extends State<ResidentHome> {
           .where('userId', isEqualTo: userId)
           .snapshots()
           .listen((snapshot) {
-        if (!mounted) return;
+            if (!mounted) return;
 
-        final userList = snapshot.docs
-            .map((doc) => doc.data() as Map<String, dynamic>)
-            .toList();
+            final userList = snapshot.docs
+                .map((doc) => doc.data() as Map<String, dynamic>)
+                .toList();
 
-        // Detect newly added docs for badge + popup (skip first snapshot)
-        if (_userNotifListenerInitialized) {
-          for (final change in snapshot.docChanges) {
-            if (change.type == DocumentChangeType.added) {
-              final data = change.doc.data() as Map<String, dynamic>?;
-              if (data == null) continue;
+            // Detect newly added docs for badge + popup (skip first snapshot)
+            if (_userNotifListenerInitialized) {
+              for (final change in snapshot.docChanges) {
+                if (change.type == DocumentChangeType.added) {
+                  final data = change.doc.data() as Map<String, dynamic>?;
+                  if (data == null) continue;
 
-              final timestamp = data['createdAt'] as Timestamp?;
-              final createdAt = timestamp?.toDate();
-              final title = (data['title'] ?? 'Notification').toString();
-              final body = (data['body'] ?? '').toString();
+                  final timestamp = data['createdAt'] as Timestamp?;
+                  final createdAt = timestamp?.toDate();
+                  final title = (data['title'] ?? 'Notification').toString();
+                  final body = (data['body'] ?? '').toString();
 
-              if (_lastAlertViewedAt == null || createdAt == null || createdAt.isAfter(_lastAlertViewedAt!)) {
-                _newAlertCount += 1;
-              }
+                  if (_lastAlertViewedAt == null ||
+                      createdAt == null ||
+                      createdAt.isAfter(_lastAlertViewedAt!)) {
+                    _newAlertCount += 1;
+                  }
 
-              if (_currentIndex != 4) {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: Text(title),
-                    content: Text(body),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Dismiss')),
-                      TextButton(
-                        onPressed: () {
-                          Navigator.pop(ctx);
-                          setState(() {
-                            _newAlertCount = 0;
-                            _lastAlertViewedAt = DateTime.now();
-                            _currentIndex = 4;
-                          });
-                        },
-                        child: const Text('View'),
+                  if (_currentIndex != 4) {
+                    showDialog(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(title),
+                        content: Text(body),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('Dismiss'),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              setState(() {
+                                _newAlertCount = 0;
+                                _lastAlertViewedAt = DateTime.now();
+                                _currentIndex = 4;
+                              });
+                            },
+                            child: const Text('View'),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
+                    );
+                  }
+                }
               }
+            } else {
+              _userNotifListenerInitialized = true;
             }
-          }
-        } else {
-          _userNotifListenerInitialized = true;
-        }
 
-        setState(() {
-          _userNotifications = userList;
-          _rebuildNotifCache();
-        });
-      });
+            setState(() {
+              _userNotifications = userList;
+              _rebuildNotifCache();
+            });
+          });
     }
   }
 
@@ -340,7 +356,9 @@ class _ResidentHomeState extends State<ResidentHome> {
         _routeDistance = route['distance'] as num;
         _routeDuration = route['duration'] as num;
       });
-      debugPrint('🛣️ Route fetched: ${RoutingService.formatDistance(_routeDistance!)}, ${RoutingService.formatDuration(_routeDuration!)}');
+      debugPrint(
+        '🛣️ Route fetched: ${RoutingService.formatDistance(_routeDistance!)}, ${RoutingService.formatDuration(_routeDuration!)}',
+      );
     }
   }
 
@@ -357,60 +375,66 @@ class _ResidentHomeState extends State<ResidentHome> {
           .where('areaCode', isEqualTo: residentAreaCode)
           .snapshots()
           .listen((snapshot) {
-        if (!mounted) return;
-        if (snapshot.docs.isEmpty) {
-          setState(() {
-            _truckLocation = null;
-            _routePoints = null;
-            _routeDistance = null;
-            _routeDuration = null;
-          });
-          return;
-        }
-
-        // Choose the closest truck to the user if we have user coords
-        Map<String, dynamic>? chosen;
-        if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
-          final userLat = _userData!['latitude'] as double;
-          final userLon = _userData!['longitude'] as double;
-          double? bestDist;
-          for (var doc in snapshot.docs) {
-            final data = doc.data() as Map<String, dynamic>;
-            final lat = data['latitude'] as double?;
-            final lon = data['longitude'] as double?;
-            if (lat == null || lon == null) continue;
-            final dist = GeoHelper.calculateDistance(userLat, userLon, lat, lon);
-            if (bestDist == null || dist < bestDist) {
-              bestDist = dist;
-              chosen = data;
+            if (!mounted) return;
+            if (snapshot.docs.isEmpty) {
+              setState(() {
+                _truckLocation = null;
+                _routePoints = null;
+                _routeDistance = null;
+                _routeDuration = null;
+              });
+              return;
             }
-          }
-        }
 
-        // Fallback: pick the first truck
-        chosen ??= snapshot.docs.first.data() as Map<String, dynamic>;
+            // Choose the closest truck to the user if we have user coords
+            Map<String, dynamic>? chosen;
+            if (_userData?['latitude'] != null &&
+                _userData?['longitude'] != null) {
+              final userLat = _userData!['latitude'] as double;
+              final userLon = _userData!['longitude'] as double;
+              double? bestDist;
+              for (var doc in snapshot.docs) {
+                final data = doc.data() as Map<String, dynamic>;
+                final lat = data['latitude'] as double?;
+                final lon = data['longitude'] as double?;
+                if (lat == null || lon == null) continue;
+                final dist = GeoHelper.calculateDistance(
+                  userLat,
+                  userLon,
+                  lat,
+                  lon,
+                );
+                if (bestDist == null || dist < bestDist) {
+                  bestDist = dist;
+                  chosen = data;
+                }
+              }
+            }
 
-        // Validate timestamp freshness
-        final timestamp = chosen['timestamp'] as Timestamp?;
-        if (timestamp != null) {
-          final age = DateTime.now().difference(timestamp.toDate());
-          if (age.inSeconds < 60) {
+            // Fallback: pick the first truck
+            chosen ??= snapshot.docs.first.data() as Map<String, dynamic>;
+
+            // Validate timestamp freshness
+            final timestamp = chosen['timestamp'] as Timestamp?;
+            if (timestamp != null) {
+              final age = DateTime.now().difference(timestamp.toDate());
+              if (age.inSeconds < 60) {
+                setState(() {
+                  _truckLocation = chosen;
+                });
+                _fetchRoute();
+                return;
+              }
+            }
+
+            // If we reach here, no fresh truck
             setState(() {
-              _truckLocation = chosen;
+              _truckLocation = null;
+              _routePoints = null;
+              _routeDistance = null;
+              _routeDuration = null;
             });
-            _fetchRoute();
-            return;
-          }
-        }
-
-        // If we reach here, no fresh truck
-        setState(() {
-          _truckLocation = null;
-          _routePoints = null;
-          _routeDistance = null;
-          _routeDuration = null;
-        });
-      });
+          });
     } else {
       // Fallback: listen to single truck document (legacy)
       final docRef = _firestore.collection('truck_locations').doc('truck_1');
@@ -494,16 +518,18 @@ class _ResidentHomeState extends State<ResidentHome> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error adding data: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error adding data: $e')));
       }
     }
   }
 
   Future<void> _removeSavedLocation() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null || _userData?['latitude'] == null || _userData?['longitude'] == null) {
+    if (user == null ||
+        _userData?['latitude'] == null ||
+        _userData?['longitude'] == null) {
       return;
     }
 
@@ -511,7 +537,9 @@ class _ResidentHomeState extends State<ResidentHome> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete current location?'),
-        content: const Text('This will permanently remove your saved collection point from Firebase. You can set a new one later.'),
+        content: const Text(
+          'This will permanently remove your saved collection point from Firebase. You can set a new one later.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -533,7 +561,10 @@ class _ResidentHomeState extends State<ResidentHome> {
       await _firestore
           .collection('users')
           .doc(user.uid)
-          .set(ResidentHome.buildLocationRemovalPayload(), SetOptions(merge: true));
+          .set(
+            ResidentHome.buildLocationRemovalPayload(),
+            SetOptions(merge: true),
+          );
 
       await _loadUserData();
       _mapController.move(const LatLng(6.9271, 79.8612), 15.0);
@@ -592,7 +623,9 @@ class _ResidentHomeState extends State<ResidentHome> {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         if (mounted) Navigator.pop(context);
-        throw Exception('Location services are disabled. Please enable GPS in settings.');
+        throw Exception(
+          'Location services are disabled. Please enable GPS in settings.',
+        );
       }
 
       // Request location permission
@@ -616,8 +649,10 @@ class _ResidentHomeState extends State<ResidentHome> {
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 15),
       );
-      
-      debugPrint('✅ GPS fix: ${position.latitude}, ${position.longitude}, Accuracy: ${position.accuracy.toStringAsFixed(1)}m');
+
+      debugPrint(
+        '✅ GPS fix: ${position.latitude}, ${position.longitude}, Accuracy: ${position.accuracy.toStringAsFixed(1)}m',
+      );
 
       if (!mounted) return;
       Navigator.pop(context); // Close loading dialog
@@ -636,7 +671,9 @@ class _ResidentHomeState extends State<ResidentHome> {
 
       if (dialogResult is LatLng) {
         final confirmedPosition = dialogResult;
-        final locationPayload = ResidentHome.buildLocationUpdatePayload(confirmedPosition);
+        final locationPayload = ResidentHome.buildLocationUpdatePayload(
+          confirmedPosition,
+        );
 
         await _firestore
             .collection('users')
@@ -658,7 +695,10 @@ class _ResidentHomeState extends State<ResidentHome> {
       }
     } catch (e) {
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(); // Close loading if still open
+        Navigator.of(
+          context,
+          rootNavigator: true,
+        ).pop(); // Close loading if still open
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error getting location: $e'),
@@ -673,9 +713,15 @@ class _ResidentHomeState extends State<ResidentHome> {
   void _showProfileSheet() {
     final user = FirebaseAuth.instance.currentUser;
 
-    final nameCtrl = TextEditingController(text: (_userData?['name'] ?? '').toString());
-    final phoneCtrl = TextEditingController(text: (_userData?['phone'] ?? '').toString());
-    final areaCtrl = TextEditingController(text: (_userData?['areaCode'] ?? '').toString());
+    final nameCtrl = TextEditingController(
+      text: (_userData?['name'] ?? '').toString(),
+    );
+    final phoneCtrl = TextEditingController(
+      text: (_userData?['phone'] ?? '').toString(),
+    );
+    final areaCtrl = TextEditingController(
+      text: (_userData?['areaCode'] ?? '').toString(),
+    );
 
     showModalBottomSheet(
       context: context,
@@ -688,18 +734,29 @@ class _ResidentHomeState extends State<ResidentHome> {
           builder: (context, setSheetState) {
             bool isSaving = false;
             return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
               child: SafeArea(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             const Expanded(
-                              child: Text('My Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              child: Text(
+                                'My Profile',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                             IconButton(
                               icon: const Icon(Icons.close),
@@ -710,7 +767,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                         const SizedBox(height: 4),
                         Text(
                           user?.email ?? _userData?['email'] ?? '',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
                         ),
                         const Divider(height: 24),
                         TextField(
@@ -744,14 +804,21 @@ class _ResidentHomeState extends State<ResidentHome> {
                         // Location row
                         Row(
                           children: [
-                            const Icon(Icons.home_outlined, color: Colors.grey, size: 20),
+                            const Icon(
+                              Icons.home_outlined,
+                              color: Colors.grey,
+                              size: 20,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 _userData?['latitude'] != null
                                     ? 'Pickup: Lat ${(_userData!['latitude'] as double).toStringAsFixed(4)}, Lon ${(_userData!['longitude'] as double).toStringAsFixed(4)}'
                                     : 'No pickup location set',
-                                style: const TextStyle(fontSize: 13, color: Colors.grey),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
                               ),
                             ),
                             TextButton(
@@ -759,15 +826,21 @@ class _ResidentHomeState extends State<ResidentHome> {
                                 Navigator.pop(context);
                                 await _showSetLocationDialog();
                               },
-                              child: Text(_userData?['latitude'] != null ? 'Edit' : 'Set'),
+                              child: Text(
+                                _userData?['latitude'] != null ? 'Edit' : 'Set',
+                              ),
                             ),
-                            if (_userData?['latitude'] != null && _userData?['longitude'] != null)
+                            if (_userData?['latitude'] != null &&
+                                _userData?['longitude'] != null)
                               TextButton(
                                 onPressed: () async {
                                   Navigator.pop(context);
                                   await _removeSavedLocation();
                                 },
-                                child: const Text('Remove', style: TextStyle(color: Colors.red)),
+                                child: const Text(
+                                  'Remove',
+                                  style: TextStyle(color: Colors.red),
+                                ),
                               ),
                           ],
                         ),
@@ -782,23 +855,39 @@ class _ResidentHomeState extends State<ResidentHome> {
                                     try {
                                       final uid = user?.uid;
                                       if (uid == null) return;
-                                      await _firestore.collection('users').doc(uid).set({
-                                        'name': nameCtrl.text.trim(),
-                                        'phone': phoneCtrl.text.trim(),
-                                        'areaCode': areaCtrl.text.trim(),
-                                        'updatedAt': FieldValue.serverTimestamp(),
-                                      }, SetOptions(merge: true));
+                                      await _firestore
+                                          .collection('users')
+                                          .doc(uid)
+                                          .set({
+                                            'name': nameCtrl.text.trim(),
+                                            'phone': phoneCtrl.text.trim(),
+                                            'areaCode': areaCtrl.text.trim(),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
+                                          }, SetOptions(merge: true));
                                       await _loadUserData();
                                       if (mounted) Navigator.pop(context);
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Profile updated successfully')),
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Profile updated successfully',
+                                            ),
+                                          ),
                                         );
                                       }
                                     } catch (e) {
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Error updating profile: $e')),
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Error updating profile: $e',
+                                            ),
+                                          ),
                                         );
                                       }
                                     } finally {
@@ -806,9 +895,18 @@ class _ResidentHomeState extends State<ResidentHome> {
                                     }
                                   },
                             icon: isSaving
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
                                 : const Icon(Icons.save_outlined),
-                            label: Text(isSaving ? 'Saving...' : 'Save Changes'),
+                            label: Text(
+                              isSaving ? 'Saving...' : 'Save Changes',
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green[700],
                               foregroundColor: Colors.white,
@@ -821,21 +919,47 @@ class _ResidentHomeState extends State<ResidentHome> {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             onPressed: () async {
-                              final email = user?.email ?? _userData?['email']?.toString();
+                              final email =
+                                  user?.email ??
+                                  _userData?['email']?.toString();
                               if (email == null || email.isEmpty) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email available to send reset link')));
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'No email available to send reset link',
+                                      ),
+                                    ),
+                                  );
                                 return;
                               }
                               try {
-                                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+                                await FirebaseAuth.instance
+                                    .sendPasswordResetEmail(email: email);
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Password reset email sent',
+                                      ),
+                                    ),
+                                  );
                               } catch (e) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error sending reset email: $e')));
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Error sending reset email: $e',
+                                      ),
+                                    ),
+                                  );
                               }
                             },
                             icon: const Icon(Icons.lock_outline),
                             label: const Text('Reset Password'),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -846,8 +970,14 @@ class _ResidentHomeState extends State<ResidentHome> {
                               Navigator.pop(context);
                               await _logout();
                             },
-                            icon: const Icon(Icons.logout, color: Colors.orange),
-                            label: const Text('Logout', style: TextStyle(color: Colors.orange)),
+                            icon: const Icon(
+                              Icons.logout,
+                              color: Colors.orange,
+                            ),
+                            label: const Text(
+                              'Logout',
+                              style: TextStyle(color: Colors.orange),
+                            ),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Colors.orange),
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -867,10 +997,17 @@ class _ResidentHomeState extends State<ResidentHome> {
                                     'This will permanently delete your account and all associated data. This action cannot be undone.',
                                   ),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
                                     ElevatedButton(
                                       onPressed: () => Navigator.pop(ctx, true),
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                        foregroundColor: Colors.white,
+                                      ),
                                       child: const Text('Delete'),
                                     ),
                                   ],
@@ -880,17 +1017,37 @@ class _ResidentHomeState extends State<ResidentHome> {
                                 try {
                                   final uid = user?.uid;
                                   if (uid != null) {
-                                    await _firestore.collection('users').doc(uid).delete();
+                                    await _firestore
+                                        .collection('users')
+                                        .doc(uid)
+                                        .delete();
                                   }
                                   await user?.delete();
-                                  if (mounted) Navigator.pushReplacementNamed(context, '/');
+                                  if (mounted)
+                                    Navigator.pushReplacementNamed(
+                                      context,
+                                      '/',
+                                    );
                                 } catch (e) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting account: $e')));
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Error deleting account: $e',
+                                        ),
+                                      ),
+                                    );
                                 }
                               }
                             },
-                            icon: const Icon(Icons.delete_forever, color: Colors.red),
-                            label: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+                            icon: const Icon(
+                              Icons.delete_forever,
+                              color: Colors.red,
+                            ),
+                            label: const Text(
+                              'Delete Account',
+                              style: TextStyle(color: Colors.red),
+                            ),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Colors.red),
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -951,10 +1108,22 @@ class _ResidentHomeState extends State<ResidentHome> {
         selectedItemColor: Colors.green[700],
         unselectedItemColor: Colors.grey[600],
         items: [
-          const BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
-          const BottomNavigationBarItem(icon: Icon(Icons.map_outlined), label: 'Map'),
-          const BottomNavigationBarItem(icon: Icon(Icons.calendar_today_outlined), label: 'Schedule'),
-          const BottomNavigationBarItem(icon: Icon(Icons.article_outlined), label: 'Report'),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            label: 'Home',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.map_outlined),
+            label: 'Map',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.calendar_today_outlined),
+            label: 'Schedule',
+          ),
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.article_outlined),
+            label: 'Report',
+          ),
           BottomNavigationBarItem(
             icon: Stack(
               clipBehavior: Clip.none,
@@ -970,10 +1139,17 @@ class _ResidentHomeState extends State<ResidentHome> {
                         color: Colors.red,
                         shape: BoxShape.circle,
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
                       child: Text(
                         _newAlertCount > 99 ? '99+' : _newAlertCount.toString(),
-                        style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
                         textAlign: TextAlign.center,
                       ),
                     ),
@@ -991,7 +1167,9 @@ class _ResidentHomeState extends State<ResidentHome> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: [Colors.green.shade700, Colors.green.shade400]),
+        gradient: LinearGradient(
+          colors: [Colors.green.shade700, Colors.green.shade400],
+        ),
         borderRadius: const BorderRadius.only(
           bottomLeft: Radius.circular(20),
           bottomRight: Radius.circular(20),
@@ -1003,9 +1181,19 @@ class _ResidentHomeState extends State<ResidentHome> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Hello', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                const Text(
+                  'Hello',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 6),
-                Text('What can we do for you?', style: TextStyle(color: Colors.white.withValues(alpha: 0.9))),
+                Text(
+                  'What can we do for you?',
+                  style: TextStyle(color: Colors.white.withValues(alpha: 0.9)),
+                ),
               ],
             ),
           ),
@@ -1033,9 +1221,7 @@ class _ResidentHomeState extends State<ResidentHome> {
           .get();
       if (mounted) {
         setState(() {
-          _communityPosts = snap.docs
-              .map((doc) => doc.data())
-              .toList()
+          _communityPosts = snap.docs.map((doc) => doc.data()).toList()
             ..sort((a, b) {
               final aTs = a['createdAt'];
               final bTs = b['createdAt'];
@@ -1065,155 +1251,195 @@ class _ResidentHomeState extends State<ResidentHome> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // Quick actions row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _quickAction(Icons.calendar_today, 'Schedule', () {
-                setState(() => _currentIndex = 2);
-              }),
-              _quickAction(Icons.report_gmailerrorred, 'Report Missed Pickup', () {
-                Navigator.pushNamed(context, '/login');
-              }),
-              _quickAction(Icons.menu_book, 'Segregation Guide', () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const SegregationGuide()),
-                );
-              }),
-            ],
-          ),
-          const SizedBox(height: 18),
+            // Quick actions row
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                _quickAction(Icons.calendar_today, 'Schedule', () {
+                  setState(() => _currentIndex = 2);
+                }),
+                _quickAction(
+                  Icons.report_gmailerrorred,
+                  'Report Missed Pickup',
+                  () {
+                    Navigator.pushNamed(context, '/login');
+                  },
+                ),
+                _quickAction(Icons.menu_book, 'Segregation Guide', () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SegregationGuide(),
+                    ),
+                  );
+                }),
+              ],
+            ),
+            const SizedBox(height: 18),
 
-          const Text('Upcoming Collection', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          _buildUpcomingCollectionCard(),
+            const Text(
+              'Upcoming Collection',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            _buildUpcomingCollectionCard(),
 
-          const SizedBox(height: 18),
-          const Text('Community Updates', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          StreamBuilder<QuerySnapshot>(
-            // Query only on a single field (no composite index needed) —
-            // sorting is done client-side to avoid Android index requirement.
-            stream: _firestore
-                .collection('community_posts')
-                .where('published', isEqualTo: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              // Update cached posts when new data arrives (prevents blinking on updates)
-              if (snapshot.hasData) {
-                final sorted = snapshot.data!.docs
-                    .map((doc) => doc.data() as Map<String, dynamic>)
-                    .toList()
-                  ..sort((a, b) {
-                    final aTs = a['createdAt'];
-                    final bTs = b['createdAt'];
-                    if (aTs == null && bTs == null) return 0;
-                    if (aTs == null) return 1;
-                    if (bTs == null) return -1;
-                    return (bTs as Timestamp).compareTo(aTs as Timestamp);
-                  });
-                _communityPosts = sorted;
-              } else if (snapshot.connectionState != ConnectionState.waiting) {
-                // Firestore responded but no data (empty result or error) —
-                // treat as empty list so we never spin forever
-                _communityPosts ??= [];
-              }
+            const SizedBox(height: 18),
+            const Text(
+              'Community Updates',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            StreamBuilder<QuerySnapshot>(
+              // Query only on a single field (no composite index needed) —
+              // sorting is done client-side to avoid Android index requirement.
+              stream: _firestore
+                  .collection('community_posts')
+                  .where('published', isEqualTo: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                // Update cached posts when new data arrives (prevents blinking on updates)
+                if (snapshot.hasData) {
+                  final sorted =
+                      snapshot.data!.docs
+                          .map((doc) => doc.data() as Map<String, dynamic>)
+                          .toList()
+                        ..sort((a, b) {
+                          final aTs = a['createdAt'];
+                          final bTs = b['createdAt'];
+                          if (aTs == null && bTs == null) return 0;
+                          if (aTs == null) return 1;
+                          if (bTs == null) return -1;
+                          return (bTs as Timestamp).compareTo(aTs as Timestamp);
+                        });
+                  _communityPosts = sorted;
+                } else if (snapshot.connectionState !=
+                    ConnectionState.waiting) {
+                  // Firestore responded but no data (empty result or error) —
+                  // treat as empty list so we never spin forever
+                  _communityPosts ??= [];
+                }
 
-              // Show spinner only while waiting for the very first response
-              if (_communityPosts == null) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
+                // Show spinner only while waiting for the very first response
+                if (_communityPosts == null) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
 
-              final posts = _communityPosts!;
+                final posts = _communityPosts!;
 
-              if (posts.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text('No community posts yet. Collector updates will appear here.'),
-                );
-              }
+                if (posts.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Text(
+                      'No community posts yet. Collector updates will appear here.',
+                    ),
+                  );
+                }
 
-              // Use Column instead of ListView so the parent SingleChildScrollView
-              // handles all scrolling — allows scrolling up to see all posts
-              return Column(
-                children: [
-                  for (int index = 0; index < posts.length; index++) ...[
-                    if (index > 0) const SizedBox(height: 10),
-                    Builder(builder: (context) {
-                      final post = posts[index];
-                      final caption = (post['caption'] ?? 'Community update').toString();
-                      final imageUrl = (post['imageUrl'] ?? '').toString();
-                      return Card(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
+                // Use Column instead of ListView so the parent SingleChildScrollView
+                // handles all scrolling — allows scrolling up to see all posts
+                return Column(
+                  children: [
+                    for (int index = 0; index < posts.length; index++) ...[
+                      if (index > 0) const SizedBox(height: 10),
+                      Builder(
+                        builder: (context) {
+                          final post = posts[index];
+                          final caption =
+                              (post['caption'] ?? 'Community update')
+                                  .toString();
+                          final imageUrl = (post['imageUrl'] ?? '').toString();
+                          return Card(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const CircleAvatar(
-                                    radius: 18,
-                                    backgroundColor: Colors.green,
-                                    child: Icon(Icons.people, color: Colors.white, size: 18),
+                                  Row(
+                                    children: [
+                                      const CircleAvatar(
+                                        radius: 18,
+                                        backgroundColor: Colors.green,
+                                        child: Icon(
+                                          Icons.people,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              (post['author'] ??
+                                                      'Collector Team')
+                                                  .toString(),
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Community update',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade600,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          (post['author'] ?? 'Collector Team').toString(),
-                                          style: const TextStyle(fontWeight: FontWeight.bold),
-                                        ),
-                                        Text(
-                                          'Community update',
-                                          style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                                        ),
-                                      ],
+                                  const SizedBox(height: 10),
+                                  if (imageUrl.isNotEmpty)
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: _buildPostImage(imageUrl),
                                     ),
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    caption,
+                                    style: const TextStyle(fontSize: 14),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 10),
-                              if (imageUrl.isNotEmpty)
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: _buildPostImage(imageUrl),
-                                ),
-                              const SizedBox(height: 10),
-                              Text(caption, style: const TextStyle(fontSize: 14)),
-                            ],
-                          ),
-                        ),
-                      );
-                    }),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   ],
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 18),
-          const Text('Waste Segregation Tips', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 160,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                _tipCard('1', 'Plastic', Colors.blue),
-                const SizedBox(width: 12),
-                _tipCard('2', 'Paper', Colors.orange),
-                const SizedBox(width: 12),
-                _tipCard('3', 'Glass', Colors.green),
-              ],
+                );
+              },
             ),
-          ),
-        ],
+            const SizedBox(height: 18),
+            const Text(
+              'Waste Segregation Tips',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 160,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                children: [
+                  _tipCard('1', 'Plastic', Colors.blue),
+                  const SizedBox(width: 12),
+                  _tipCard('2', 'Paper', Colors.orange),
+                  const SizedBox(width: 12),
+                  _tipCard('3', 'Glass', Colors.green),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1286,10 +1512,13 @@ class _ResidentHomeState extends State<ResidentHome> {
                   minScale: 1,
                   maxScale: 4,
                   child: imageBase64 != null && imageBase64.isNotEmpty
-                      ? Image.memory(base64Decode(imageBase64), fit: BoxFit.contain)
+                      ? Image.memory(
+                          base64Decode(imageBase64),
+                          fit: BoxFit.contain,
+                        )
                       : (imageUrl != null && imageUrl.isNotEmpty
-                          ? Image.network(imageUrl, fit: BoxFit.contain)
-                          : const Center(child: Text('No image available'))),
+                            ? Image.network(imageUrl, fit: BoxFit.contain)
+                            : const Center(child: Text('No image available'))),
                 ),
               ),
             ],
@@ -1304,7 +1533,9 @@ class _ResidentHomeState extends State<ResidentHome> {
       child: GestureDetector(
         onTap: onTap,
         child: Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -1312,7 +1543,11 @@ class _ResidentHomeState extends State<ResidentHome> {
               children: [
                 Icon(icon, color: Colors.green[700]),
                 const SizedBox(height: 8),
-                Text(label, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+                Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12),
+                ),
               ],
             ),
           ),
@@ -1324,15 +1559,28 @@ class _ResidentHomeState extends State<ResidentHome> {
   Widget _tipCard(String number, String title, Color color) {
     return Container(
       width: 160,
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CircleAvatar(radius: 14, backgroundColor: color.withOpacity(0.1), child: Text(number, style: TextStyle(color: color, fontWeight: FontWeight.bold))),
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: color.withOpacity(0.1),
+              child: Text(
+                number,
+                style: TextStyle(color: color, fontWeight: FontWeight.bold),
+              ),
+            ),
             const SizedBox(height: 12),
-            Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              title,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 6),
             const Text(
               'Short tip description goes here',
@@ -1403,7 +1651,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                       onTap: _showIssueTypePicker,
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF8FAFD),
                           borderRadius: BorderRadius.circular(14),
@@ -1421,7 +1672,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                                 ),
                               ),
                             ),
-                            const Icon(Icons.keyboard_arrow_down, color: Color(0xFF90A0B5)),
+                            const Icon(
+                              Icons.keyboard_arrow_down,
+                              color: Color(0xFF90A0B5),
+                            ),
                           ],
                         ),
                       ),
@@ -1447,7 +1701,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                         maxLines: 5,
                         decoration: const InputDecoration(
                           hintText: 'Please describe the issue in detail...',
-                          hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
+                          hintStyle: TextStyle(
+                            color: Color(0xFFB6C1CF),
+                            fontSize: 16,
+                          ),
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.all(14),
                         ),
@@ -1470,7 +1727,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                         decoration: BoxDecoration(
                           color: const Color(0xFFF4F7FB),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFDCE5EF), style: BorderStyle.solid),
+                          border: Border.all(
+                            color: const Color(0xFFDCE5EF),
+                            style: BorderStyle.solid,
+                          ),
                         ),
                         child: _reportImageBytes != null
                             ? Stack(
@@ -1488,14 +1748,20 @@ class _ResidentHomeState extends State<ResidentHome> {
                                     top: 8,
                                     right: 8,
                                     child: GestureDetector(
-                                      onTap: () => setState(() => _reportImageBytes = null),
+                                      onTap: () => setState(
+                                        () => _reportImageBytes = null,
+                                      ),
                                       child: Container(
                                         padding: const EdgeInsets.all(4),
                                         decoration: const BoxDecoration(
                                           color: Colors.black54,
                                           shape: BoxShape.circle,
                                         ),
-                                        child: const Icon(Icons.close, color: Colors.white, size: 18),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1505,7 +1771,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                                 padding: EdgeInsets.symmetric(vertical: 28),
                                 child: Column(
                                   children: [
-                                    Icon(Icons.camera_alt_outlined, size: 34, color: Color(0xFF90A0B5)),
+                                    Icon(
+                                      Icons.camera_alt_outlined,
+                                      size: 34,
+                                      color: Color(0xFF90A0B5),
+                                    ),
                                     SizedBox(height: 8),
                                     Text(
                                       'Tap to upload photo (camera or gallery)',
@@ -1521,7 +1791,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                     ),
                     const SizedBox(height: 16),
                     _isSubmittingReport
-                        ? const Center(child: CircularProgressIndicator(color: Color(0xFF18B984)))
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF18B984),
+                            ),
+                          )
                         : _primaryActionButton(
                             label: 'Submit Report',
                             onTap: _submitReport,
@@ -1546,8 +1820,12 @@ class _ResidentHomeState extends State<ResidentHome> {
                         controller: _feedbackMsgController,
                         maxLines: 6,
                         decoration: const InputDecoration(
-                          hintText: 'Tell us how we can improve your collection experience...',
-                          hintStyle: TextStyle(color: Color(0xFFB6C1CF), fontSize: 16),
+                          hintText:
+                              'Tell us how we can improve your collection experience...',
+                          hintStyle: TextStyle(
+                            color: Color(0xFFB6C1CF),
+                            fontSize: 16,
+                          ),
                           border: InputBorder.none,
                           contentPadding: EdgeInsets.all(14),
                         ),
@@ -1555,7 +1833,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                     ),
                     const SizedBox(height: 16),
                     _isSubmittingFeedback
-                        ? const Center(child: CircularProgressIndicator(color: Color(0xFF18B984)))
+                        ? const Center(
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF18B984),
+                            ),
+                          )
                         : _primaryActionButton(
                             label: 'Submit Feedback',
                             onTap: _submitFeedback,
@@ -1612,7 +1894,10 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
-  Widget _primaryActionButton({required String label, required VoidCallback onTap}) {
+  Widget _primaryActionButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(14),
@@ -1663,12 +1948,18 @@ class _ResidentHomeState extends State<ResidentHome> {
           children: [
             const SizedBox(height: 8),
             ListTile(
-              leading: const Icon(Icons.camera_alt_outlined, color: Color(0xFF18B984)),
+              leading: const Icon(
+                Icons.camera_alt_outlined,
+                color: Color(0xFF18B984),
+              ),
               title: const Text('Take Photo'),
               onTap: () => Navigator.pop(ctx, ImageSource.camera),
             ),
             ListTile(
-              leading: const Icon(Icons.photo_library_outlined, color: Color(0xFF18B984)),
+              leading: const Icon(
+                Icons.photo_library_outlined,
+                color: Color(0xFF18B984),
+              ),
               title: const Text('Choose from Gallery'),
               onTap: () => Navigator.pop(ctx, ImageSource.gallery),
             ),
@@ -1695,9 +1986,9 @@ class _ResidentHomeState extends State<ResidentHome> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not pick image: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not pick image: $e')));
       }
     }
   }
@@ -1748,7 +2039,9 @@ class _ResidentHomeState extends State<ResidentHome> {
     if (_reportDescController.text.trim().isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please add a description before submitting.')),
+          const SnackBar(
+            content: Text('Please add a description before submitting.'),
+          ),
         );
       }
       return;
@@ -1794,9 +2087,9 @@ class _ResidentHomeState extends State<ResidentHome> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmittingReport = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not submit report: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Could not submit report: $e')));
       }
     }
   }
@@ -1845,22 +2138,43 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   Widget _buildRecentReportsList() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
     return StreamBuilder<QuerySnapshot>(
-      stream: _firestore.collection('reports').orderBy('createdAt', descending: true).limit(3).snapshots(),
+      stream: userId == null
+          ? const Stream<QuerySnapshot>.empty()
+          : _firestore
+                .collection('reports')
+                .where('userId', isEqualTo: userId)
+                .snapshots(),
       builder: (context, snapshot) {
         List<Map<String, dynamic>> reports = [];
 
         if (snapshot.hasData) {
-          reports = snapshot.data!.docs
+          final ownReports = snapshot.data!.docs.toList()
+            ..sort((first, second) {
+              final firstDate =
+                  (first.data() as Map<String, dynamic>)['createdAt']
+                      as Timestamp?;
+              final secondDate =
+                  (second.data() as Map<String, dynamic>)['createdAt']
+                      as Timestamp?;
+              return (secondDate?.millisecondsSinceEpoch ?? 0).compareTo(
+                firstDate?.millisecondsSinceEpoch ?? 0,
+              );
+            });
+          reports = ownReports
+              .take(3)
               .map((doc) => doc.data() as Map<String, dynamic>)
               .toList();
         }
 
-        if (snapshot.hasError || reports.isEmpty) {
-          reports = [
-            {'type': 'Missed Pickup', 'status': 'Submitted', 'createdAt': null},
-            {'type': 'Damaged Bin', 'status': 'In Review', 'createdAt': null},
-          ];
+        if (reports.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: Text('You have not submitted any reports yet.'),
+            ),
+          );
         }
 
         return Column(
@@ -1892,7 +2206,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                       color: const Color(0xFFF0F5FB),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child: const Icon(Icons.assignment_outlined, color: Color(0xFF6F8299)),
+                    child: const Icon(
+                      Icons.assignment_outlined,
+                      color: Color(0xFF6F8299),
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1906,7 +2223,10 @@ class _ResidentHomeState extends State<ResidentHome> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: statusColor.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
@@ -1940,11 +2260,17 @@ class _ResidentHomeState extends State<ResidentHome> {
           child: Row(
             children: [
               const Expanded(
-                child: Text('Notifications', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                child: Text(
+                  'Notifications',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
               ),
               if (residentAreaCode.isNotEmpty)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green[50],
                     borderRadius: BorderRadius.circular(12),
@@ -1952,7 +2278,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                   ),
                   child: Text(
                     'Area: $residentAreaCode',
-                    style: TextStyle(color: Colors.green[700], fontWeight: FontWeight.bold, fontSize: 12),
+                    style: TextStyle(
+                      color: Colors.green[700],
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
             ],
@@ -1962,9 +2292,7 @@ class _ResidentHomeState extends State<ResidentHome> {
         const Divider(height: 1),
 
         // Notifications list: merged area-wide + user-specific, latest 10 only
-        Expanded(
-          child: _buildNotificationsContent(residentAreaCode),
-        ),
+        Expanded(child: _buildNotificationsContent(residentAreaCode)),
       ],
     );
   }
@@ -1978,7 +2306,8 @@ class _ResidentHomeState extends State<ResidentHome> {
 
     if (docs.isEmpty) {
       // Show a spinner briefly while listeners initialise
-      final listenersStarted = _notifListenerInitialized || _userNotifListenerInitialized;
+      final listenersStarted =
+          _notifListenerInitialized || _userNotifListenerInitialized;
       if (!listenersStarted) {
         return const Center(child: CircularProgressIndicator());
       }
@@ -2065,13 +2394,18 @@ class _ResidentHomeState extends State<ResidentHome> {
               const SizedBox(width: 12),
               Expanded(
                 child: Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: ListTile(
                     leading: CircleAvatar(
                       backgroundColor: leftColor.withValues(alpha: 0.12),
                       child: Icon(icon, color: leftColor),
                     ),
-                    title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    title: Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
                     subtitle: Text(body),
                     trailing: Text(
                       timeText,
@@ -2087,9 +2421,7 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
-
   Widget _buildMapTab() {
-
     return Stack(
       children: [
         _buildMap(),
@@ -2156,7 +2488,10 @@ class _ResidentHomeState extends State<ResidentHome> {
             builder: (context) => Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.blue,
                     borderRadius: BorderRadius.circular(12),
@@ -2256,7 +2591,8 @@ class _ResidentHomeState extends State<ResidentHome> {
           child: FloatingActionButton.small(
             heroTag: 'recenter_resident_map',
             onPressed: () {
-              if (_userData?['latitude'] != null && _userData?['longitude'] != null) {
+              if (_userData?['latitude'] != null &&
+                  _userData?['longitude'] != null) {
                 final lat = _userData!['latitude'] as double;
                 final lon = _userData!['longitude'] as double;
                 _mapController.move(LatLng(lat, lon), 15.0);
@@ -2275,7 +2611,7 @@ class _ResidentHomeState extends State<ResidentHome> {
       debugPrint('🏠 User location not set, hiding ETA');
       return const SizedBox.shrink();
     }
-    
+
     if (_truckLocation == null) {
       debugPrint('🚛 No truck location, hiding ETA');
       return const SizedBox.shrink();
@@ -2284,24 +2620,26 @@ class _ResidentHomeState extends State<ResidentHome> {
     // Use OSRM route data if available, otherwise fallback to straight-line
     String distanceText;
     String etaText;
-    
+
     if (_routeDistance != null && _routeDuration != null) {
       // Use OSRM routing data
       distanceText = RoutingService.formatDistance(_routeDistance!);
-      
+
       // Get truck's current speed if available
       final truckSpeed = _truckLocation!['speed'] as num?;
-      
+
       // Calculate dynamic ETA based on current speed
       final dynamicETA = RoutingService.calculateDynamicETA(
         routeDistance: _routeDistance!,
         routeDuration: _routeDuration!,
         currentSpeed: truckSpeed?.toDouble(),
       );
-      
+
       etaText = RoutingService.formatDuration(dynamicETA);
-      
-      debugPrint('📊 ETA Card: distance=$distanceText, eta=$etaText, speed=${truckSpeed?.toStringAsFixed(1) ?? '?'} km/h');
+
+      debugPrint(
+        '📊 ETA Card: distance=$distanceText, eta=$etaText, speed=${truckSpeed?.toStringAsFixed(1) ?? '?'} km/h',
+      );
     } else {
       // Fallback to straight-line calculation
       final userLat = _userData!['latitude'] as double;
@@ -2309,13 +2647,20 @@ class _ResidentHomeState extends State<ResidentHome> {
       final truckLat = _truckLocation!['latitude'] as double;
       final truckLon = _truckLocation!['longitude'] as double;
 
-      final distance = GeoHelper.calculateDistance(userLat, userLon, truckLat, truckLon);
+      final distance = GeoHelper.calculateDistance(
+        userLat,
+        userLon,
+        truckLat,
+        truckLon,
+      );
       final eta = GeoHelper.calculateETA(distance);
-      
+
       distanceText = GeoHelper.formatDistance(distance);
       etaText = GeoHelper.formatETA(eta);
-      
-      debugPrint('📊 ETA Card (fallback): distance=$distanceText, eta=$etaText');
+
+      debugPrint(
+        '📊 ETA Card (fallback): distance=$distanceText, eta=$etaText',
+      );
     }
 
     return Positioned(
@@ -2332,7 +2677,11 @@ class _ResidentHomeState extends State<ResidentHome> {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.local_shipping, color: Colors.blue, size: 32),
+                  const Icon(
+                    Icons.local_shipping,
+                    color: Colors.blue,
+                    size: 32,
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -2358,7 +2707,9 @@ class _ResidentHomeState extends State<ResidentHome> {
                   ),
                   Icon(
                     Icons.access_time,
-                    color: (_routeDuration != null && _routeDuration! < 600) ? Colors.green : Colors.orange,
+                    color: (_routeDuration != null && _routeDuration! < 600)
+                        ? Colors.green
+                        : Colors.orange,
                     size: 28,
                   ),
                 ],
@@ -2378,8 +2729,12 @@ class _ResidentHomeState extends State<ResidentHome> {
           return const Center(child: CircularProgressIndicator());
         }
 
-        final schedules = snapshot.hasData ? snapshot.data!.docs : <QueryDocumentSnapshot>[];
-        final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
+        final schedules = snapshot.hasData
+            ? snapshot.data!.docs
+            : <QueryDocumentSnapshot>[];
+        final residentAreaCode = (_userData?['areaCode'] ?? '')
+            .toString()
+            .trim();
         final sourceSchedules = schedules
             .map((doc) => doc.data() as Map<String, dynamic>)
             .toList();
@@ -2393,41 +2748,49 @@ class _ResidentHomeState extends State<ResidentHome> {
 
         final selectedDate = _dateForSelectedScheduleDay();
         final selectedDayName = _weekdayLongName(selectedDate.weekday - 1);
-        final filteredSchedules = sourceSchedules.where((schedule) {
-          final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
-          final areaMatches = residentAreaCode.isEmpty ||
-              scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
-          if (!areaMatches) return false;
+        final filteredSchedules =
+            sourceSchedules.where((schedule) {
+              final scheduleAreaCode =
+                  (schedule['areaCode'] ?? schedule['areaName'] ?? '')
+                      .toString()
+                      .trim();
+              final areaMatches =
+                  residentAreaCode.isEmpty ||
+                  scheduleAreaCode.toLowerCase() ==
+                      residentAreaCode.toLowerCase();
+              if (!areaMatches) return false;
 
-          if (_scheduleFilterIndex == 0) {
-            return true;
-          }
+              if (_scheduleFilterIndex == 0) {
+                return true;
+              }
 
-          final scheduleDate = _resolveScheduleDate(schedule);
-          final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
-          final status = _scheduleStatus(schedule, dayOfWeek);
+              final scheduleDate = _resolveScheduleDate(schedule);
+              final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
+              final status = _scheduleStatus(schedule, dayOfWeek);
 
-          if (_scheduleFilterIndex == 1) {
-            return status == 'Upcoming';
-          }
+              if (_scheduleFilterIndex == 1) {
+                return status == 'Upcoming';
+              }
 
-          final bool dayMatches;
-          if (scheduleDate != null) {
-            dayMatches = scheduleDate.year == selectedDate.year &&
-                scheduleDate.month == selectedDate.month &&
-                scheduleDate.day == selectedDate.day;
-          } else {
-            dayMatches = dayOfWeek.isEmpty || dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
-          }
-          if (!dayMatches) return false;
-          if (_scheduleFilterIndex == 2) return status == 'Completed';
-          return status == 'Missed';
-        }).toList()
-          ..sort((a, b) {
-            final aDate = _resolveScheduleDate(a) ?? DateTime(9999);
-            final bDate = _resolveScheduleDate(b) ?? DateTime(9999);
-            return aDate.compareTo(bDate);
-          });
+              final bool dayMatches;
+              if (scheduleDate != null) {
+                dayMatches =
+                    scheduleDate.year == selectedDate.year &&
+                    scheduleDate.month == selectedDate.month &&
+                    scheduleDate.day == selectedDate.day;
+              } else {
+                dayMatches =
+                    dayOfWeek.isEmpty ||
+                    dayOfWeek.toLowerCase() == selectedDayName.toLowerCase();
+              }
+              if (!dayMatches) return false;
+              if (_scheduleFilterIndex == 2) return status == 'Completed';
+              return status == 'Missed';
+            }).toList()..sort((a, b) {
+              final aDate = _resolveScheduleDate(a) ?? DateTime(9999);
+              final bDate = _resolveScheduleDate(b) ?? DateTime(9999);
+              return aDate.compareTo(bDate);
+            });
 
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
@@ -2512,7 +2875,9 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   DateTime _dateForSelectedScheduleDay() {
-    return _scheduleStripStartDate().add(Duration(days: _selectedScheduleDayIndex));
+    return _scheduleStripStartDate().add(
+      Duration(days: _selectedScheduleDayIndex),
+    );
   }
 
   bool _isSelectedDateInCurrentWeek(DateTime date) {
@@ -2522,11 +2887,18 @@ class _ResidentHomeState extends State<ResidentHome> {
     return !date.isBefore(monday) && !date.isAfter(sunday);
   }
 
-  DateTime? _findNewestScheduleDateForArea(List<Map<String, dynamic>> schedules, String residentAreaCode) {
+  DateTime? _findNewestScheduleDateForArea(
+    List<Map<String, dynamic>> schedules,
+    String residentAreaCode,
+  ) {
     DateTime? newest;
     for (final schedule in schedules) {
-      final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
-      final areaMatches = residentAreaCode.isEmpty ||
+      final scheduleAreaCode =
+          (schedule['areaCode'] ?? schedule['areaName'] ?? '')
+              .toString()
+              .trim();
+      final areaMatches =
+          residentAreaCode.isEmpty ||
           scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
       if (!areaMatches) continue;
 
@@ -2540,22 +2912,33 @@ class _ResidentHomeState extends State<ResidentHome> {
     return newest;
   }
 
-  Map<String, dynamic>? _findNearestUpcomingSchedule(List<Map<String, dynamic>> schedules, String residentAreaCode) {
+  Map<String, dynamic>? _findNearestUpcomingSchedule(
+    List<Map<String, dynamic>> schedules,
+    String residentAreaCode,
+  ) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     DateTime? nearestDate;
     Map<String, dynamic>? nearest;
 
     for (final schedule in schedules) {
-      final scheduleAreaCode = (schedule['areaCode'] ?? schedule['areaName'] ?? '').toString().trim();
-      final areaMatches = residentAreaCode.isEmpty ||
+      final scheduleAreaCode =
+          (schedule['areaCode'] ?? schedule['areaName'] ?? '')
+              .toString()
+              .trim();
+      final areaMatches =
+          residentAreaCode.isEmpty ||
           scheduleAreaCode.toLowerCase() == residentAreaCode.toLowerCase();
       if (!areaMatches) continue;
 
       final scheduleDate = _resolveScheduleDate(schedule);
       if (scheduleDate == null) continue;
 
-      final scheduleDayOnly = DateTime(scheduleDate.year, scheduleDate.month, scheduleDate.day);
+      final scheduleDayOnly = DateTime(
+        scheduleDate.year,
+        scheduleDate.month,
+        scheduleDate.day,
+      );
       if (scheduleDayOnly.isBefore(today)) continue;
 
       if (nearestDate == null || scheduleDayOnly.isBefore(nearestDate)) {
@@ -2575,11 +2958,19 @@ class _ResidentHomeState extends State<ResidentHome> {
         child: ListTile(
           leading: Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+            decoration: BoxDecoration(
+              color: Colors.green[50],
+              borderRadius: BorderRadius.circular(8),
+            ),
             child: const Icon(Icons.calendar_month, color: Colors.green),
           ),
-          title: const Text('Upcoming collection unavailable', style: TextStyle(fontWeight: FontWeight.bold)),
-          subtitle: const Text('Set your area code to see the nearest schedule.'),
+          title: const Text(
+            'Upcoming collection unavailable',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          subtitle: const Text(
+            'Set your area code to see the nearest schedule.',
+          ),
           trailing: const Icon(Icons.info_outline),
         ),
       );
@@ -2588,7 +2979,8 @@ class _ResidentHomeState extends State<ResidentHome> {
     return StreamBuilder<QuerySnapshot>(
       stream: _firestore.collection('schedules').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting && snapshot.data == null) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            snapshot.data == null) {
           return const Padding(
             padding: EdgeInsets.symmetric(vertical: 24),
             child: Center(child: CircularProgressIndicator()),
@@ -2596,48 +2988,79 @@ class _ResidentHomeState extends State<ResidentHome> {
         }
 
         final sourceSchedules = snapshot.hasData
-            ? snapshot.data!.docs.map((doc) => doc.data() as Map<String, dynamic>).toList()
+            ? snapshot.data!.docs
+                  .map((doc) => doc.data() as Map<String, dynamic>)
+                  .toList()
             : <Map<String, dynamic>>[];
 
-        final schedules = sourceSchedules.isNotEmpty ? sourceSchedules : _fallbackSchedules();
-        final nextSchedule = _findNearestUpcomingSchedule(schedules, residentAreaCode);
+        final schedules = sourceSchedules.isNotEmpty
+            ? sourceSchedules
+            : _fallbackSchedules();
+        final nextSchedule = _findNearestUpcomingSchedule(
+          schedules,
+          residentAreaCode,
+        );
 
         if (nextSchedule == null) {
           return Card(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
             child: ListTile(
               leading: Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 child: const Icon(Icons.event_busy, color: Colors.green),
               ),
-              title: const Text('No upcoming schedule found', style: TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: const Text('Check back later or update your area code.'),
+              title: const Text(
+                'No upcoming schedule found',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: const Text(
+                'Check back later or update your area code.',
+              ),
               trailing: const Icon(Icons.local_shipping_outlined),
             ),
           );
         }
 
         final date = _resolveScheduleDate(nextSchedule) ?? DateTime.now();
-        final wasteType = (nextSchedule['wasteType'] ?? 'Collection').toString();
+        final wasteType = (nextSchedule['wasteType'] ?? 'Collection')
+            .toString();
         final time = (nextSchedule['time'] ?? '08:00 AM - 10:00 AM').toString();
         final areaName = (nextSchedule['areaName'] ?? '').toString();
         final dayLabel = _formatCardDate(date);
 
         return Card(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: ListTile(
             leading: Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: Colors.green[50], borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+              ),
               child: Text(
                 '${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.green,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
-            title: Text(wasteType, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text('$dayLabel • ${_formatTimeRange(time)}${areaName.isNotEmpty ? '\n$areaName' : ''}'),
+            title: Text(
+              wasteType,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            subtitle: Text(
+              '$dayLabel • ${_formatTimeRange(time)}${areaName.isNotEmpty ? '\n$areaName' : ''}',
+            ),
             isThreeLine: areaName.isNotEmpty,
             trailing: const Icon(Icons.local_shipping),
             onTap: () {
@@ -2672,7 +3095,10 @@ class _ResidentHomeState extends State<ResidentHome> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_scheduleScrollController.hasClients) return;
       final targetOffset = (_selectedScheduleDayIndex * 50.0) - 90.0;
-      final clampedOffset = targetOffset.clamp(0.0, _scheduleScrollController.position.maxScrollExtent);
+      final clampedOffset = targetOffset.clamp(
+        0.0,
+        _scheduleScrollController.position.maxScrollExtent,
+      );
       if ((_scheduleScrollController.offset - clampedOffset).abs() > 2) {
         _scheduleScrollController.animateTo(
           clampedOffset,
@@ -2703,7 +3129,9 @@ class _ResidentHomeState extends State<ResidentHome> {
               height: 66,
               margin: const EdgeInsets.only(right: 8),
               decoration: BoxDecoration(
-                color: isSelected ? const Color(0xFF16C37E) : Colors.transparent,
+                color: isSelected
+                    ? const Color(0xFF16C37E)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(21),
               ),
               child: Column(
@@ -2714,7 +3142,9 @@ class _ResidentHomeState extends State<ResidentHome> {
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
-                      color: isSelected ? Colors.white.withValues(alpha: 0.88) : const Color(0xFF8EA0B5),
+                      color: isSelected
+                          ? Colors.white.withValues(alpha: 0.88)
+                          : const Color(0xFF8EA0B5),
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -2723,7 +3153,9 @@ class _ResidentHomeState extends State<ResidentHome> {
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w800,
-                      color: isSelected ? Colors.white : const Color(0xFF223246),
+                      color: isSelected
+                          ? Colors.white
+                          : const Color(0xFF223246),
                     ),
                   ),
                 ],
@@ -2766,7 +3198,9 @@ class _ResidentHomeState extends State<ResidentHome> {
 
   Widget _buildNoSchedulesCard() {
     final residentAreaCode = (_userData?['areaCode'] ?? '').toString().trim();
-    final areaHint = residentAreaCode.isNotEmpty ? ' for $residentAreaCode' : '';
+    final areaHint = residentAreaCode.isNotEmpty
+        ? ' for $residentAreaCode'
+        : '';
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 6),
@@ -2800,7 +3234,8 @@ class _ResidentHomeState extends State<ResidentHome> {
   Widget _buildScheduleCard(Map<String, dynamic> schedule) {
     final wasteType = (schedule['wasteType'] ?? 'Unknown Waste').toString();
     final dayOfWeek = (schedule['dayOfWeek'] ?? '').toString();
-    final areaName = (schedule['areaName'] ?? '61a Buganda Rd, Kampala').toString();
+    final areaName = (schedule['areaName'] ?? '61a Buganda Rd, Kampala')
+        .toString();
     final time = (schedule['time'] ?? '08:00 AM - 10:00 AM').toString();
     final status = _scheduleStatus(schedule, dayOfWeek);
 
@@ -2813,7 +3248,8 @@ class _ResidentHomeState extends State<ResidentHome> {
       wasteIcon = Icons.delete_outline;
     }
 
-    final cardDate = _resolveScheduleDate(schedule) ?? _nextDateForWeekday(dayOfWeek);
+    final cardDate =
+        _resolveScheduleDate(schedule) ?? _nextDateForWeekday(dayOfWeek);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -2835,7 +3271,11 @@ class _ResidentHomeState extends State<ResidentHome> {
                   color: const Color(0xFFF3F6FA),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(wasteIcon, color: const Color(0xFF7D8EA5), size: 20),
+                child: Icon(
+                  wasteIcon,
+                  color: const Color(0xFF7D8EA5),
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -2858,7 +3298,10 @@ class _ResidentHomeState extends State<ResidentHome> {
             ],
           ),
           const SizedBox(height: 14),
-          _scheduleMetaRow(Icons.calendar_today_outlined, _formatCardDate(cardDate)),
+          _scheduleMetaRow(
+            Icons.calendar_today_outlined,
+            _formatCardDate(cardDate),
+          ),
           const SizedBox(height: 7),
           _scheduleMetaRow(Icons.access_time, _formatTimeRange(time)),
           const SizedBox(height: 7),
@@ -2866,7 +3309,11 @@ class _ResidentHomeState extends State<ResidentHome> {
           const SizedBox(height: 8),
           Row(
             children: const [
-              Icon(Icons.verified_user_outlined, size: 16, color: Color(0xFF0BAA68)),
+              Icon(
+                Icons.verified_user_outlined,
+                size: 16,
+                color: Color(0xFF0BAA68),
+              ),
               SizedBox(width: 6),
               Text(
                 'Admin Scheduled',
@@ -2951,7 +3398,15 @@ class _ResidentHomeState extends State<ResidentHome> {
   }
 
   String _weekdayLongName(int index) {
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
     return days[index];
   }
 
@@ -2966,7 +3421,8 @@ class _ResidentHomeState extends State<ResidentHome> {
       'sunday': 7,
     };
 
-    final targetWeekday = map[dayOfWeek.toLowerCase()] ?? DateTime.now().weekday;
+    final targetWeekday =
+        map[dayOfWeek.toLowerCase()] ?? DateTime.now().weekday;
     final now = DateTime.now();
     final diff = (targetWeekday - now.weekday + 7) % 7;
     return now.add(Duration(days: diff));
@@ -3091,8 +3547,13 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    _manuallyAdjusted ? 'Adjust Your Location' : 'Confirm GPS Location',
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    _manuallyAdjusted
+                        ? 'Adjust Your Location'
+                        : 'Confirm GPS Location',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 IconButton(
@@ -3108,14 +3569,18 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                 color: _manuallyAdjusted ? Colors.orange[50] : Colors.green[50],
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: _manuallyAdjusted ? Colors.orange[200]! : Colors.green[200]!,
+                  color: _manuallyAdjusted
+                      ? Colors.orange[200]!
+                      : Colors.green[200]!,
                 ),
               ),
               child: Row(
                 children: [
                   Icon(
                     Icons.info_outline,
-                    color: _manuallyAdjusted ? Colors.orange[700] : Colors.green[700],
+                    color: _manuallyAdjusted
+                        ? Colors.orange[700]
+                        : Colors.green[700],
                     size: 20,
                   ),
                   const SizedBox(width: 8),
@@ -3147,7 +3612,8 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                 ),
                 children: [
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.example.waste_management_app',
                   ),
                   MarkerLayer(
@@ -3157,7 +3623,9 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                         width: 60,
                         height: 60,
                         builder: (context) => Icon(
-                          _manuallyAdjusted ? Icons.location_pin : Icons.my_location,
+                          _manuallyAdjusted
+                              ? Icons.location_pin
+                              : Icons.my_location,
                           color: _manuallyAdjusted ? Colors.red : Colors.blue,
                           size: 50,
                         ),
@@ -3182,11 +3650,17 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                     children: [
                       const Text(
                         'Coordinates:',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       if (_manuallyAdjusted)
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
                           decoration: BoxDecoration(
                             color: Colors.orange,
                             borderRadius: BorderRadius.circular(12),
@@ -3205,11 +3679,17 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                   const SizedBox(height: 4),
                   Text(
                     'Lat: ${_selectedPosition.latitude.toStringAsFixed(6)}',
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                   Text(
                     'Lon: ${_selectedPosition.longitude.toStringAsFixed(6)}',
-                    style: const TextStyle(fontSize: 12, fontFamily: 'monospace'),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
                   ),
                 ],
               ),
@@ -3223,10 +3703,14 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                       child: SizedBox(
                         height: 64,
                         child: OutlinedButton(
-                          onPressed: () => Navigator.pop(context, 'delete_location'),
+                          onPressed: () =>
+                              Navigator.pop(context, 'delete_location'),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: Colors.red,
-                            side: const BorderSide(color: Colors.red, width: 1.2),
+                            side: const BorderSide(
+                              color: Colors.red,
+                              width: 1.2,
+                            ),
                             padding: EdgeInsets.zero,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(16),
@@ -3237,7 +3721,11 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                             children: [
                               Icon(Icons.delete_outline, size: 22),
                               SizedBox(height: 4),
-                              Text('Delete', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                              Text(
+                                'Delete',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ],
                           ),
                         ),
@@ -3260,7 +3748,11 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                             children: [
                               Icon(Icons.close, size: 22),
                               SizedBox(height: 4),
-                              Text('Cancel', textAlign: TextAlign.center, style: TextStyle(fontSize: 12)),
+                              Text(
+                                'Cancel',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(fontSize: 12),
+                              ),
                             ],
                           ),
                         ),
@@ -3278,12 +3770,18 @@ class _LocationPickerDialogState extends State<_LocationPickerDialog> {
                     label: const Text(
                       'Confirm',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.green,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
                       ),
