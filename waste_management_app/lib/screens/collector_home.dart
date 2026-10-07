@@ -65,9 +65,15 @@ class _CollectorHomeState extends State<CollectorHome> {
     await _loadCollectorProfile();
     if (!mounted) return;
 
-    final nameCtrl = TextEditingController(text: (_collectorProfile?['name'] ?? '').toString());
-    final phoneCtrl = TextEditingController(text: (_collectorProfile?['phone'] ?? '').toString());
-    final areaCtrl = TextEditingController(text: (_collectorProfile?['areaCode'] ?? '').toString());
+    final nameCtrl = TextEditingController(
+      text: (_collectorProfile?['name'] ?? '').toString(),
+    );
+    final phoneCtrl = TextEditingController(
+      text: (_collectorProfile?['phone'] ?? '').toString(),
+    );
+    final areaCtrl = TextEditingController(
+      text: (_collectorProfile?['areaCode'] ?? '').toString(),
+    );
     bool isSaving = false;
 
     await showModalBottomSheet(
@@ -80,18 +86,29 @@ class _CollectorHomeState extends State<CollectorHome> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Padding(
-              padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(context).viewInsets.bottom,
+              ),
               child: SafeArea(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             const Expanded(
-                              child: Text('Collector Profile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                              child: Text(
+                                'Collector Profile',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
                             IconButton(
                               icon: const Icon(Icons.close),
@@ -102,7 +119,10 @@ class _CollectorHomeState extends State<CollectorHome> {
                         const SizedBox(height: 4),
                         Text(
                           user.email ?? _collectorProfile?['email'] ?? '',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 14),
+                          style: TextStyle(
+                            color: Colors.grey[600],
+                            fontSize: 14,
+                          ),
                         ),
                         const Divider(height: 24),
                         TextField(
@@ -141,23 +161,39 @@ class _CollectorHomeState extends State<CollectorHome> {
                                 : () async {
                                     setSheetState(() => isSaving = true);
                                     try {
-                                      await _firestore.collection('users').doc(user.uid).set({
-                                        'name': nameCtrl.text.trim(),
-                                        'phone': phoneCtrl.text.trim(),
-                                        'areaCode': areaCtrl.text.trim(),
-                                        'updatedAt': FieldValue.serverTimestamp(),
-                                      }, SetOptions(merge: true));
+                                      await _firestore
+                                          .collection('users')
+                                          .doc(user.uid)
+                                          .set({
+                                            'name': nameCtrl.text.trim(),
+                                            'phone': phoneCtrl.text.trim(),
+                                            'areaCode': areaCtrl.text.trim(),
+                                            'updatedAt':
+                                                FieldValue.serverTimestamp(),
+                                          }, SetOptions(merge: true));
                                       await _loadCollectorProfile();
                                       if (mounted) Navigator.pop(context);
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Profile updated successfully')),
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Profile updated successfully',
+                                            ),
+                                          ),
                                         );
                                       }
                                     } catch (e) {
                                       if (mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(content: Text('Error updating profile: $e')),
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          SnackBar(
+                                            content: Text(
+                                              'Error updating profile: $e',
+                                            ),
+                                          ),
                                         );
                                       }
                                     } finally {
@@ -165,9 +201,18 @@ class _CollectorHomeState extends State<CollectorHome> {
                                     }
                                   },
                             icon: isSaving
-                                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
                                 : const Icon(Icons.save_outlined),
-                            label: Text(isSaving ? 'Saving...' : 'Save Changes'),
+                            label: Text(
+                              isSaving ? 'Saving...' : 'Save Changes',
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.green,
                               foregroundColor: Colors.white,
@@ -180,21 +225,43 @@ class _CollectorHomeState extends State<CollectorHome> {
                           width: double.infinity,
                           child: OutlinedButton.icon(
                             onPressed: () async {
-                              final email = user.email ?? _collectorProfile?['email']?.toString();
+                              final email =
+                                  user.email ??
+                                  _collectorProfile?['email']?.toString();
                               if (email == null || email.isEmpty) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No email to send reset link')));
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'No email to send reset link',
+                                      ),
+                                    ),
+                                  );
                                 return;
                               }
                               try {
-                                await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Password reset email sent')));
+                                await FirebaseAuth.instance
+                                    .sendPasswordResetEmail(email: email);
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Password reset email sent',
+                                      ),
+                                    ),
+                                  );
                               } catch (e) {
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Error: $e')),
+                                  );
                               }
                             },
                             icon: const Icon(Icons.lock_outline),
                             label: const Text('Reset Password'),
-                            style: OutlinedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14)),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -205,8 +272,14 @@ class _CollectorHomeState extends State<CollectorHome> {
                               Navigator.pop(context);
                               await _logout();
                             },
-                            icon: const Icon(Icons.logout, color: Colors.orange),
-                            label: const Text('Logout', style: TextStyle(color: Colors.orange)),
+                            icon: const Icon(
+                              Icons.logout,
+                              color: Colors.orange,
+                            ),
+                            label: const Text(
+                              'Logout',
+                              style: TextStyle(color: Colors.orange),
+                            ),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Colors.orange),
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -226,10 +299,17 @@ class _CollectorHomeState extends State<CollectorHome> {
                                     'This will permanently delete your account and all associated data. This action cannot be undone.',
                                   ),
                                   actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx, false),
+                                      child: const Text('Cancel'),
+                                    ),
                                     ElevatedButton(
                                       onPressed: () => Navigator.pop(ctx, true),
-                                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.red,
+                                        foregroundColor: Colors.white,
+                                      ),
                                       child: const Text('Delete'),
                                     ),
                                   ],
@@ -237,16 +317,36 @@ class _CollectorHomeState extends State<CollectorHome> {
                               );
                               if (confirmed == true) {
                                 try {
-                                  await _firestore.collection('users').doc(user.uid).delete();
+                                  await _firestore
+                                      .collection('users')
+                                      .doc(user.uid)
+                                      .delete();
                                   await user.delete();
-                                  if (mounted) Navigator.pushReplacementNamed(context, '/');
+                                  if (mounted)
+                                    Navigator.pushReplacementNamed(
+                                      context,
+                                      '/',
+                                    );
                                 } catch (e) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error deleting account: $e')));
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Error deleting account: $e',
+                                        ),
+                                      ),
+                                    );
                                 }
                               }
                             },
-                            icon: const Icon(Icons.delete_forever, color: Colors.red),
-                            label: const Text('Delete Account', style: TextStyle(color: Colors.red)),
+                            icon: const Icon(
+                              Icons.delete_forever,
+                              color: Colors.red,
+                            ),
+                            label: const Text(
+                              'Delete Account',
+                              style: TextStyle(color: Colors.red),
+                            ),
                             style: OutlinedButton.styleFrom(
                               side: const BorderSide(color: Colors.red),
                               padding: const EdgeInsets.symmetric(vertical: 14),
@@ -324,7 +424,15 @@ class _CollectorHomeState extends State<CollectorHome> {
   }
 
   String _dayNameFromDate(DateTime date) {
-    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
     return days[date.weekday - 1];
   }
 
@@ -334,8 +442,13 @@ class _CollectorHomeState extends State<CollectorHome> {
 
   Future<void> _showScheduleEditor({Map<String, dynamic>? schedule}) async {
     final isEditing = schedule != null;
-    final wasteController = TextEditingController(text: (schedule?['wasteType'] ?? '').toString());
-    String selectedAreaCode = (schedule?['areaCode'] ?? schedule?['areaName'] ?? '').toString().trim();
+    final wasteController = TextEditingController(
+      text: (schedule?['wasteType'] ?? '').toString(),
+    );
+    String selectedAreaCode =
+        (schedule?['areaCode'] ?? schedule?['areaName'] ?? '')
+            .toString()
+            .trim();
     if (!kAreaCodes.contains(selectedAreaCode)) {
       selectedAreaCode = kAreaCodes.first;
     }
@@ -392,10 +505,12 @@ class _CollectorHomeState extends State<CollectorHome> {
                     value: selectedAreaCode,
                     decoration: const InputDecoration(labelText: 'Area'),
                     items: kAreaCodes
-                        .map((area) => DropdownMenuItem<String>(
-                              value: area,
-                              child: Text(area),
-                            ))
+                        .map(
+                          (area) => DropdownMenuItem<String>(
+                            value: area,
+                            child: Text(area),
+                          ),
+                        )
                         .toList(),
                     onChanged: (value) {
                       if (value == null) return;
@@ -414,7 +529,9 @@ class _CollectorHomeState extends State<CollectorHome> {
                       final picked = await showDatePicker(
                         context: context,
                         initialDate: selectedDate,
-                        firstDate: DateTime.now().subtract(const Duration(days: 1)),
+                        firstDate: DateTime.now().subtract(
+                          const Duration(days: 1),
+                        ),
                         lastDate: DateTime.now().add(const Duration(days: 365)),
                       );
                       if (picked != null) {
@@ -430,7 +547,10 @@ class _CollectorHomeState extends State<CollectorHome> {
                     subtitle: Text(selectedTime.format(context)),
                     trailing: const Icon(Icons.access_time),
                     onTap: () async {
-                      final picked = await showTimePicker(context: context, initialTime: selectedTime);
+                      final picked = await showTimePicker(
+                        context: context,
+                        initialTime: selectedTime,
+                      );
                       if (picked != null) {
                         setDialogState(() {
                           selectedTime = picked;
@@ -442,13 +562,18 @@ class _CollectorHomeState extends State<CollectorHome> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
               ElevatedButton(
                 onPressed: () async {
                   final wasteType = wasteController.text.trim();
                   if (wasteType.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please complete waste type and area.')),
+                      const SnackBar(
+                        content: Text('Please complete waste type and area.'),
+                      ),
                     );
                     return;
                   }
@@ -532,10 +657,16 @@ class _CollectorHomeState extends State<CollectorHome> {
         title: const Text('Delete schedule'),
         content: const Text('Remove this schedule from the resident view?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -561,7 +692,9 @@ class _CollectorHomeState extends State<CollectorHome> {
 
   Future<void> _showPostComposer({Map<String, dynamic>? post}) async {
     final isEditing = post != null;
-    final captionController = TextEditingController(text: (post?['caption'] ?? '').toString());
+    final captionController = TextEditingController(
+      text: (post?['caption'] ?? '').toString(),
+    );
     String? imageData = (post?['imageData'] ?? '').toString();
     if (imageData.isEmpty) {
       imageData = (post?['imageUrl'] ?? '').toString();
@@ -609,13 +742,23 @@ class _CollectorHomeState extends State<CollectorHome> {
                               if (mounted) {
                                 setDialogState(() => isPickingImage = false);
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error picking image: $e')),
+                                  SnackBar(
+                                    content: Text('Error picking image: $e'),
+                                  ),
                                 );
                               }
                             }
                           },
-                    icon: isPickingImage ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.photo_library_outlined),
-                    label: Text(isPickingImage ? 'Picking image...' : 'Choose image'),
+                    icon: isPickingImage
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.photo_library_outlined),
+                    label: Text(
+                      isPickingImage ? 'Picking image...' : 'Choose image',
+                    ),
                   ),
                   if (imageData != null && imageData!.isNotEmpty) ...[
                     const SizedBox(height: 12),
@@ -639,9 +782,16 @@ class _CollectorHomeState extends State<CollectorHome> {
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Icon(Icons.error_outline, color: Colors.red, size: 32),
+                                    const Icon(
+                                      Icons.error_outline,
+                                      color: Colors.red,
+                                      size: 32,
+                                    ),
                                     const SizedBox(height: 8),
-                                    Text('Error loading image', style: TextStyle(color: Colors.red[700])),
+                                    Text(
+                                      'Error loading image',
+                                      style: TextStyle(color: Colors.red[700]),
+                                    ),
                                   ],
                                 ),
                               );
@@ -668,9 +818,16 @@ class _CollectorHomeState extends State<CollectorHome> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.image_outlined, color: Colors.grey, size: 40),
+                            Icon(
+                              Icons.image_outlined,
+                              color: Colors.grey,
+                              size: 40,
+                            ),
                             SizedBox(height: 8),
-                            Text('No image selected', style: TextStyle(color: Colors.grey)),
+                            Text(
+                              'No image selected',
+                              style: TextStyle(color: Colors.grey),
+                            ),
                           ],
                         ),
                       ),
@@ -680,26 +837,36 @@ class _CollectorHomeState extends State<CollectorHome> {
               ),
             ),
             actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
               ElevatedButton(
                 onPressed: () async {
                   final caption = captionController.text.trim();
                   if (caption.isEmpty) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Please add a caption for the post.')),
+                      const SnackBar(
+                        content: Text('Please add a caption for the post.'),
+                      ),
                     );
                     return;
                   }
 
-                  final userId = FirebaseAuth.instance.currentUser?.uid ?? 'collector';
+                  final userId =
+                      FirebaseAuth.instance.currentUser?.uid ?? 'collector';
                   final docRef = isEditing && post?['id'] != null
-                      ? _firestore.collection('community_posts').doc(post!['id'].toString())
+                      ? _firestore
+                            .collection('community_posts')
+                            .doc(post!['id'].toString())
                       : _firestore.collection('community_posts').doc();
 
                   final data = <String, dynamic>{
                     'caption': caption,
                     'imageData': imageData ?? '',
-                    'imageUrl': imageData != null && imageData!.isNotEmpty ? 'data:image/jpeg;base64,$imageData' : '',
+                    'imageUrl': imageData != null && imageData!.isNotEmpty
+                        ? 'data:image/jpeg;base64,$imageData'
+                        : '',
                     'author': 'Collector Team',
                     'createdBy': userId,
                     'updatedBy': userId,
@@ -714,7 +881,9 @@ class _CollectorHomeState extends State<CollectorHome> {
                   if (!mounted) return;
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Post published to Firebase successfully')),
+                    const SnackBar(
+                      content: Text('Post published to Firebase successfully'),
+                    ),
                   );
                 },
                 child: Text(isEditing ? 'Save changes' : 'Publish post'),
@@ -748,10 +917,14 @@ class _CollectorHomeState extends State<CollectorHome> {
                   minScale: 1,
                   maxScale: 4,
                   child: imageBase64 != null && imageBase64.isNotEmpty
-                      ? Image.memory(base64Decode(imageBase64), fit: BoxFit.contain, cacheWidth: 600)
+                      ? Image.memory(
+                          base64Decode(imageBase64),
+                          fit: BoxFit.contain,
+                          cacheWidth: 600,
+                        )
                       : (imageUrl != null && imageUrl.isNotEmpty
-                          ? Image.network(imageUrl, fit: BoxFit.contain)
-                          : const Center(child: Text('No image available'))),
+                            ? Image.network(imageUrl, fit: BoxFit.contain)
+                            : const Center(child: Text('No image available'))),
                 ),
               ),
             ],
@@ -766,12 +939,20 @@ class _CollectorHomeState extends State<CollectorHome> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete post'),
-        content: const Text('Remove this community update from the resident feed?'),
+        content: const Text(
+          'Remove this community update from the resident feed?',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -852,11 +1033,19 @@ class _CollectorHomeState extends State<CollectorHome> {
                       backgroundColor: Colors.green[50],
                       child: Text(
                         area.substring(0, area.length > 2 ? 2 : area.length),
-                        style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12),
+                        style: const TextStyle(
+                          color: Colors.green,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                     title: Text('Area $area'),
-                    trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+                    trailing: const Icon(
+                      Icons.arrow_forward_ios,
+                      size: 16,
+                      color: Colors.grey,
+                    ),
                     onTap: () => Navigator.pop(context, area),
                   );
                 },
@@ -895,11 +1084,14 @@ class _CollectorHomeState extends State<CollectorHome> {
       });
 
       // Start broadcasting location every 10 seconds
-      _locationTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      _locationTimer = Timer.periodic(const Duration(seconds: 10), (
+        timer,
+      ) async {
         try {
           Position position = await Geolocator.getCurrentPosition(
             desiredAccuracy: LocationAccuracy.high,
-            forceAndroidLocationManager: true, // Force GPS instead of network location
+            forceAndroidLocationManager:
+                true, // Force GPS instead of network location
             timeLimit: const Duration(seconds: 8), // Timeout after 8 seconds
           );
 
@@ -912,7 +1104,9 @@ class _CollectorHomeState extends State<CollectorHome> {
               position.latitude,
               position.longitude,
             ); // meters
-            final timeDiff = position.timestamp.difference(_previousPosition!.timestamp).inSeconds;
+            final timeDiff = position.timestamp
+                .difference(_previousPosition!.timestamp)
+                .inSeconds;
             if (timeDiff > 0) {
               speed = (distance / timeDiff) * 3.6; // Convert m/s to km/h
             }
@@ -923,7 +1117,10 @@ class _CollectorHomeState extends State<CollectorHome> {
             _currentPosition = position;
             _currentSpeed = speed;
           });
-          _mapController.move(LatLng(position.latitude, position.longitude), 14.0);
+          _mapController.move(
+            LatLng(position.latitude, position.longitude),
+            14.0,
+          );
 
           await _firestore.collection('truck_locations').doc('truck_1').set({
             'latitude': position.latitude,
@@ -934,7 +1131,9 @@ class _CollectorHomeState extends State<CollectorHome> {
             'areaCode': _currentAreaCode ?? '',
           });
 
-          debugPrint('📍 Location: ${position.latitude}, ${position.longitude}, Speed: ${speed.toStringAsFixed(1)} km/h, Accuracy: ${position.accuracy.toStringAsFixed(1)}m');
+          debugPrint(
+            '📍 Location: ${position.latitude}, ${position.longitude}, Speed: ${speed.toStringAsFixed(1)} km/h, Accuracy: ${position.accuracy.toStringAsFixed(1)}m',
+          );
         } catch (e) {
           debugPrint('Error updating location: $e');
         }
@@ -952,9 +1151,11 @@ class _CollectorHomeState extends State<CollectorHome> {
         _currentSpeed = 0.0;
       });
       _mapController.move(LatLng(position.latitude, position.longitude), 14.0);
-      
-      debugPrint('✅ Initial GPS fix: ${position.latitude}, ${position.longitude}, Accuracy: ${position.accuracy.toStringAsFixed(1)}m');
-      
+
+      debugPrint(
+        '✅ Initial GPS fix: ${position.latitude}, ${position.longitude}, Accuracy: ${position.accuracy.toStringAsFixed(1)}m',
+      );
+
       await _firestore.collection('truck_locations').doc('truck_1').set({
         'latitude': position.latitude,
         'longitude': position.longitude,
@@ -963,13 +1164,15 @@ class _CollectorHomeState extends State<CollectorHome> {
         'speed': 0.0,
         'areaCode': _currentAreaCode ?? '',
       });
+      await _persistShiftStatus(true);
 
       // Send in-app notification to residents in the selected area
       if (_currentAreaCode != null && _currentAreaCode!.isNotEmpty) {
         await NotificationService.sendToArea(
           areaCode: _currentAreaCode!,
           title: '🚛 Truck Started Shift — Area $_currentAreaCode',
-          body: 'The waste collection truck has started its shift in your area. Please have your bins ready.',
+          body:
+              'The waste collection truck has started its shift in your area. Please have your bins ready.',
           type: 'shift_start',
         );
       }
@@ -1001,14 +1204,15 @@ class _CollectorHomeState extends State<CollectorHome> {
 
   Future<void> _stopShift() async {
     _locationTimer?.cancel();
-    
+
     // Delete truck location from Firestore
     try {
       await _firestore.collection('truck_locations').doc('truck_1').delete();
     } catch (e) {
       debugPrint('Error deleting truck location: $e');
     }
-    
+    await _persistShiftStatus(false);
+
     setState(() {
       _isOnShift = false;
       _currentPosition = null;
@@ -1029,9 +1233,26 @@ class _CollectorHomeState extends State<CollectorHome> {
     }
   }
 
-  Future<void> _navigateToLocation(double lat, double lon, String address) async {
-    final url = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lon');
-    
+  Future<void> _persistShiftStatus(bool onShift) async {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) return;
+    await _firestore.collection('users').doc(userId).set({
+      'onShift': onShift,
+      'shiftAreaCode': onShift ? (_currentAreaCode ?? '') : '',
+      if (onShift) 'shiftStartedAt': FieldValue.serverTimestamp(),
+      if (!onShift) 'shiftEndedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> _navigateToLocation(
+    double lat,
+    double lon,
+    String address,
+  ) async {
+    final url = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&destination=$lat,$lon',
+    );
+
     if (await canLaunchUrl(url)) {
       await launchUrl(url, mode: LaunchMode.externalApplication);
     } else {
@@ -1072,7 +1293,6 @@ class _CollectorHomeState extends State<CollectorHome> {
       await query.docs.first.reference.update(removePayload);
     }
   }
-
 
   Future<void> _showPickupDialog(Map<String, dynamic> resident) async {
     final lat = resident['latitude'] as double?;
@@ -1163,12 +1383,20 @@ class _CollectorHomeState extends State<CollectorHome> {
                 context: widgetContext,
                 builder: (ctx) => AlertDialog(
                   title: const Text('Mark as Picked Up'),
-                  content: Text('Remove pickup point for $email? This marks the bins as collected.'),
+                  content: Text(
+                    'Remove pickup point for $email? This marks the bins as collected.',
+                  ),
                   actions: [
-                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel'),
+                    ),
                     ElevatedButton(
                       onPressed: () => Navigator.pop(ctx, true),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.green,
+                        foregroundColor: Colors.white,
+                      ),
                       child: const Text('Confirm'),
                     ),
                   ],
@@ -1179,25 +1407,33 @@ class _CollectorHomeState extends State<CollectorHome> {
                   await _deleteResidentPickupPoint(resident);
                   // Send a personal notification to the resident that their bin was collected
                   final residentUid = resident['uid'] as String? ?? '';
-                  final residentAreaCode = resident['areaCode'] as String? ?? _currentAreaCode ?? '';
+                  final residentAreaCode =
+                      resident['areaCode'] as String? ?? _currentAreaCode ?? '';
                   if (residentUid.isNotEmpty) {
                     await NotificationService.sendToUser(
                       userId: residentUid,
                       areaCode: residentAreaCode,
                       title: '✅ Bin Collected!',
-                      body: 'Your waste bins have been successfully collected by the collector. Thank you for being ready!',
+                      body:
+                          'Your waste bins have been successfully collected by the collector. Thank you for being ready!',
                       type: 'bin_collected',
                     );
                   }
                   if (mounted) {
                     ScaffoldMessenger.of(widgetContext).showSnackBar(
-                      SnackBar(content: Text('Pickup confirmed and resident notified for $email.')),
+                      SnackBar(
+                        content: Text(
+                          'Pickup confirmed and resident notified for $email.',
+                        ),
+                      ),
                     );
                   }
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(widgetContext).showSnackBar(
-                      SnackBar(content: Text('Error removing pickup point: $e')),
+                      SnackBar(
+                        content: Text('Error removing pickup point: $e'),
+                      ),
                     );
                   }
                 }
@@ -1255,18 +1491,20 @@ class _CollectorHomeState extends State<CollectorHome> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(child: _buildSelectedTab()),
-        ],
-      ),
+      body: Column(children: [Expanded(child: _buildSelectedTab())]),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedTabIndex,
         onTap: (index) => setState(() => _selectedTabIndex = index),
         type: BottomNavigationBarType.fixed,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: 'Home'),
-          BottomNavigationBarItem(icon: Icon(Icons.edit_outlined), label: 'Edit'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home_outlined),
+            label: 'Home',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.edit_outlined),
+            label: 'Edit',
+          ),
         ],
       ),
     );
@@ -1306,13 +1544,16 @@ class _CollectorHomeState extends State<CollectorHome> {
                   children: [
                     Text(
                       _isOnShift ? 'On Shift' : 'Off Shift',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     Text(
                       _isOnShift
                           ? (_currentAreaCode != null
-                              ? 'Area: $_currentAreaCode • Broadcasting every 10s'
-                              : 'Broadcasting location every 10 seconds')
+                                ? 'Area: $_currentAreaCode • Broadcasting every 10s'
+                                : 'Broadcasting location every 10 seconds')
                           : 'Tap button to start your shift',
                       style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                     ),
@@ -1322,12 +1563,18 @@ class _CollectorHomeState extends State<CollectorHome> {
               const SizedBox(width: 8),
               ElevatedButton.icon(
                 onPressed: _toggleShift,
-                icon: Icon(_isOnShift ? Icons.stop : Icons.play_arrow, size: 18),
+                icon: Icon(
+                  _isOnShift ? Icons.stop : Icons.play_arrow,
+                  size: 18,
+                ),
                 label: Text(_isOnShift ? 'Stop' : 'Start'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _isOnShift ? Colors.red : Colors.green,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                 ),
               ),
             ],
@@ -1339,15 +1586,15 @@ class _CollectorHomeState extends State<CollectorHome> {
             stream: _isOnShift
                 // On shift: only residents in the collector's area code
                 ? _firestore
-                    .collection('users')
-                    .where('role', isEqualTo: 'resident')
-                    .where('areaCode', isEqualTo: _currentAreaCode ?? '')
-                    .snapshots()
+                      .collection('users')
+                      .where('role', isEqualTo: 'resident')
+                      .where('areaCode', isEqualTo: _currentAreaCode ?? '')
+                      .snapshots()
                 // Off shift: all residents with a pickup point set
                 : _firestore
-                    .collection('users')
-                    .where('role', isEqualTo: 'resident')
-                    .snapshots(),
+                      .collection('users')
+                      .where('role', isEqualTo: 'resident')
+                      .snapshots(),
             builder: (context, snapshot) {
               List<Map<String, dynamic>> residents = [];
               if (snapshot.hasData) {
@@ -1357,7 +1604,10 @@ class _CollectorHomeState extends State<CollectorHome> {
                       data['uid'] = doc.id;
                       return data;
                     })
-                    .where((data) => data['latitude'] != null && data['longitude'] != null)
+                    .where(
+                      (data) =>
+                          data['latitude'] != null && data['longitude'] != null,
+                    )
                     .toList();
               }
 
@@ -1375,20 +1625,30 @@ class _CollectorHomeState extends State<CollectorHome> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.info_outline, size: 48, color: Colors.grey[400]),
+                              Icon(
+                                Icons.info_outline,
+                                size: 48,
+                                color: Colors.grey[400],
+                              ),
                               const SizedBox(height: 12),
                               Text(
                                 _isOnShift
                                     ? 'No pickup points in Area $_currentAreaCode'
                                     : 'No pickup points yet',
-                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               Text(
                                 _isOnShift
                                     ? 'Residents in this area will appear here once they set their location.'
                                     : 'Residents will appear here once they set their location.',
-                                style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
                                 textAlign: TextAlign.center,
                               ),
                             ],
@@ -1401,13 +1661,9 @@ class _CollectorHomeState extends State<CollectorHome> {
             },
           ),
         ),
-
-
       ],
     );
   }
-
-
 
   Widget _buildScheduleManagementCard() {
     return Container(
@@ -1416,7 +1672,13 @@ class _CollectorHomeState extends State<CollectorHome> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1425,7 +1687,12 @@ class _CollectorHomeState extends State<CollectorHome> {
             children: [
               const Icon(Icons.calendar_month, color: Colors.green, size: 24),
               const SizedBox(width: 8),
-              const Expanded(child: Text('Edit schedule', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              const Expanded(
+                child: Text(
+                  'Edit schedule',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
               IconButton(
                 onPressed: () => _showScheduleEditor(),
                 icon: const Icon(Icons.add_circle_outline),
@@ -1434,15 +1701,24 @@ class _CollectorHomeState extends State<CollectorHome> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text('Manage the current collection plan for residents. You can add, edit, or remove entries.', style: TextStyle(color: Colors.grey)),
+          const Text(
+            'Manage the current collection plan for residents. You can add, edit, or remove entries.',
+            style: TextStyle(color: Colors.grey),
+          ),
           const SizedBox(height: 12),
           const Align(
             alignment: Alignment.centerLeft,
-            child: Text('Existing schedules', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            child: Text(
+              'Existing schedules',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
           ),
           const SizedBox(height: 12),
           StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('schedules').orderBy('date', descending: false).snapshots(),
+            stream: _firestore
+                .collection('schedules')
+                .orderBy('date', descending: false)
+                .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -1459,21 +1735,27 @@ class _CollectorHomeState extends State<CollectorHome> {
                 final starterSchedules = [
                   {
                     'wasteType': 'Recyclables',
-                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 1))),
+                    'dayOfWeek': _dayNameFromDate(
+                      today.add(const Duration(days: 1)),
+                    ),
                     'date': _formatDate(today.add(const Duration(days: 1))),
                     'time': '09:00 AM',
                     'areaName': 'A01',
                   },
                   {
                     'wasteType': 'Organic waste',
-                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 3))),
+                    'dayOfWeek': _dayNameFromDate(
+                      today.add(const Duration(days: 3)),
+                    ),
                     'date': _formatDate(today.add(const Duration(days: 3))),
                     'time': '10:30 AM',
                     'areaName': 'A02',
                   },
                   {
                     'wasteType': 'General waste',
-                    'dayOfWeek': _dayNameFromDate(today.add(const Duration(days: 5))),
+                    'dayOfWeek': _dayNameFromDate(
+                      today.add(const Duration(days: 5)),
+                    ),
                     'date': _formatDate(today.add(const Duration(days: 5))),
                     'time': '08:00 AM',
                     'areaName': 'A03',
@@ -1494,12 +1776,17 @@ class _CollectorHomeState extends State<CollectorHome> {
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
-                          title: Text((schedule['wasteType'] ?? 'Schedule').toString()),
-                          subtitle: Text('${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}'),
+                          title: Text(
+                            (schedule['wasteType'] ?? 'Schedule').toString(),
+                          ),
+                          subtitle: Text(
+                            '${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}',
+                          ),
                           trailing: IconButton(
                             icon: const Icon(Icons.edit_outlined),
                             tooltip: 'Edit schedule',
-                            onPressed: () => _showScheduleEditor(schedule: schedule),
+                            onPressed: () =>
+                                _showScheduleEditor(schedule: schedule),
                           ),
                         ),
                       );
@@ -1512,13 +1799,25 @@ class _CollectorHomeState extends State<CollectorHome> {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      title: Text((schedule['wasteType'] ?? 'Schedule').toString()),
-                      subtitle: Text('${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}'),
+                      title: Text(
+                        (schedule['wasteType'] ?? 'Schedule').toString(),
+                      ),
+                      subtitle: Text(
+                        '${schedule['dayOfWeek'] ?? ''} • ${schedule['date'] ?? ''} • ${schedule['time'] ?? ''}\n${schedule['areaName'] ?? ''}',
+                      ),
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showScheduleEditor(schedule: schedule)),
-                          IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deleteSchedule(schedule['id'].toString())),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () =>
+                                _showScheduleEditor(schedule: schedule),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () =>
+                                _deleteSchedule(schedule['id'].toString()),
+                          ),
                         ],
                       ),
                     ),
@@ -1539,16 +1838,31 @@ class _CollectorHomeState extends State<CollectorHome> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.post_add_outlined, color: Colors.green, size: 24),
+              const Icon(
+                Icons.post_add_outlined,
+                color: Colors.green,
+                size: 24,
+              ),
               const SizedBox(width: 8),
-              const Expanded(child: Text('Community posts', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+              const Expanded(
+                child: Text(
+                  'Community posts',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+              ),
               IconButton(
                 onPressed: () => _showPostComposer(),
                 icon: const Icon(Icons.add_circle_outline),
@@ -1557,10 +1871,16 @@ class _CollectorHomeState extends State<CollectorHome> {
             ],
           ),
           const SizedBox(height: 8),
-          const Text('Share photos and captions that appear in the resident home feed.', style: TextStyle(color: Colors.grey)),
+          const Text(
+            'Share photos and captions that appear in the resident home feed.',
+            style: TextStyle(color: Colors.grey),
+          ),
           const SizedBox(height: 12),
           StreamBuilder<QuerySnapshot>(
-            stream: _firestore.collection('community_posts').orderBy('createdAt', descending: true).snapshots(),
+            stream: _firestore
+                .collection('community_posts')
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
@@ -1575,7 +1895,9 @@ class _CollectorHomeState extends State<CollectorHome> {
               if (posts.isEmpty) {
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text('No posts yet. Share updates for residents to see.'),
+                  child: Text(
+                    'No posts yet. Share updates for residents to see.',
+                  ),
                 );
               }
               return Column(
@@ -1583,7 +1905,9 @@ class _CollectorHomeState extends State<CollectorHome> {
                   return Card(
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
-                      title: Text((post['caption'] ?? 'Community update').toString()),
+                      title: Text(
+                        (post['caption'] ?? 'Community update').toString(),
+                      ),
                       subtitle: Text(
                         (post['imageUrl'] ?? '').toString().isEmpty
                             ? 'No image attached yet'
@@ -1592,8 +1916,14 @@ class _CollectorHomeState extends State<CollectorHome> {
                       trailing: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          IconButton(icon: const Icon(Icons.edit_outlined), onPressed: () => _showPostComposer(post: post)),
-                          IconButton(icon: const Icon(Icons.delete_outline), onPressed: () => _deletePost(post['id'].toString())),
+                          IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: () => _showPostComposer(post: post),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () => _deletePost(post['id'].toString()),
+                          ),
                         ],
                       ),
                     ),
@@ -1614,7 +1944,10 @@ class _CollectorHomeState extends State<CollectorHome> {
     if (_isOnShift && _currentPosition != null) {
       markers.add(
         Marker(
-          point: LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+          point: LatLng(
+            _currentPosition!.latitude,
+            _currentPosition!.longitude,
+          ),
           width: 100,
           height: 100,
           builder: (context) => Column(
@@ -1657,7 +1990,10 @@ class _CollectorHomeState extends State<CollectorHome> {
             child: Column(
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.green,
                     borderRadius: BorderRadius.circular(10),
@@ -1728,7 +2064,10 @@ class _CollectorHomeState extends State<CollectorHome> {
             onPressed: () {
               if (_currentPosition != null) {
                 _mapController.move(
-                  LatLng(_currentPosition!.latitude, _currentPosition!.longitude),
+                  LatLng(
+                    _currentPosition!.latitude,
+                    _currentPosition!.longitude,
+                  ),
                   14.0,
                 );
               }

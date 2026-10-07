@@ -1268,86 +1268,213 @@ class _AdminHomeState extends State<AdminHome>
   // ─────────────────────────────────── USERS TAB ───────────────────────────────
 
   Widget _buildUsersTab() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-          child: Row(
-            children: [
-              const Icon(
-                Icons.people_rounded,
-                color: Color(0xFF0288D1),
-                size: 22,
-              ),
-              const SizedBox(width: 8),
-              const Text(
-                'All Users',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _firestore.collection('users').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFF0288D1)),
+          );
+        }
+        if (snapshot.hasError) {
+          return _emptyScreen(Icons.error_outline, 'Could not load users');
+        }
+
+        final users =
+            snapshot.data?.docs
+                .map((doc) => {...doc.data(), 'id': doc.id})
+                .toList() ??
+            <Map<String, dynamic>>[];
+        if (users.isEmpty) {
+          return _emptyScreen(Icons.people_outline, 'No users found');
+        }
+
+        final residents = users
+            .where((user) => (user['role'] ?? 'resident') == 'resident')
+            .toList();
+        final collectors = users
+            .where((user) => user['role'] == 'collector')
+            .toList();
+        final admins = users.where((user) => user['role'] == 'admin').toList();
+        final onShift = collectors
+            .where((user) => user['onShift'] == true)
+            .length;
+        final residentAreas = <String, List<Map<String, dynamic>>>{};
+        for (final resident in residents) {
+          final areaCode = (resident['areaCode'] ?? '').toString().trim();
+          residentAreas
+              .putIfAbsent(areaCode.isEmpty ? 'Unassigned' : areaCode, () => [])
+              .add(resident);
+        }
+        final areas = residentAreas.keys.toList()..sort();
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          children: [
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _userCountBadge(
+                  'Residents',
+                  residents.length,
+                  const Color(0xFF0288D1),
                 ),
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
+                _userCountBadge(
+                  'Collectors',
+                  collectors.length,
+                  const Color(0xFFE53935),
                 ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0288D1).withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(20),
+                _userCountBadge('On shift', onShift, const Color(0xFF43A047)),
+                _userCountBadge(
+                  'Off shift',
+                  collectors.length - onShift,
+                  const Color(0xFFFFA726),
                 ),
-                child: Text(
-                  '$_totalUsers total',
-                  style: const TextStyle(
-                    color: Color(0xFF0288D1),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                _userCountBadge(
+                  'Admins',
+                  admins.length,
+                  const Color(0xFF7C83FD),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            _userSectionHeading(
+              'Residents by area',
+              residents.length,
+              const Color(0xFF0288D1),
+            ),
+            if (areas.isEmpty)
+              _emptyMessageForUsers('No residents found.')
+            else
+              ...areas.map((area) {
+                final areaResidents = residentAreas[area]!;
+                final locatedCount = areaResidents
+                    .where(_hasResidentPickupLocation)
+                    .length;
+                return Container(
+                  margin: const EdgeInsets.only(top: 8, bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF151F31),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF2E3D5E)),
                   ),
-                ),
-              ),
-            ],
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Area $area',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            '${areaResidents.length} residents · $locatedCount locations set',
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.55),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      ...areaResidents.map(_userCard),
+                    ],
+                  ),
+                );
+              }),
+            const SizedBox(height: 16),
+            _userSectionHeading(
+              'Collectors',
+              collectors.length,
+              const Color(0xFFE53935),
+            ),
+            if (collectors.isEmpty)
+              _emptyMessageForUsers('No collectors found.')
+            else
+              ...collectors.map(_userCard),
+            const SizedBox(height: 16),
+            _userSectionHeading(
+              'Admins',
+              admins.length,
+              const Color(0xFF7C83FD),
+            ),
+            if (admins.isEmpty)
+              _emptyMessageForUsers('No admins found.')
+            else
+              ...admins.map(_userCard),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _userCountBadge(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        '$label: $count',
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _userSectionHeading(String title, int count, Color color) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
           ),
         ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot>(
-            stream: _firestore
-                .collection('users')
-                .orderBy('createdAt', descending: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(
-                  child: CircularProgressIndicator(color: Color(0xFF0288D1)),
-                );
-              }
-              if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                return _emptyScreen(Icons.people_outline, 'No users found');
-              }
-
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                itemCount: snapshot.data!.docs.length,
-                itemBuilder: (context, index) {
-                  final doc = snapshot.data!.docs[index];
-                  final data = doc.data() as Map<String, dynamic>;
-                  return _userCard(data);
-                },
-              );
-            },
-          ),
+        Text(
+          '$count',
+          style: TextStyle(color: color, fontWeight: FontWeight.w700),
         ),
       ],
     );
   }
 
+  Widget _emptyMessageForUsers(String message) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 10),
+    child: Text(
+      message,
+      style: TextStyle(color: Colors.white.withOpacity(0.5)),
+    ),
+  );
+
+  bool _hasResidentPickupLocation(Map<String, dynamic> user) =>
+      user['latitude'] is num && user['longitude'] is num;
+
   Widget _userCard(Map<String, dynamic> data) {
-    final name = (data['name'] ?? 'Unknown') as String;
-    final email = (data['email'] ?? '') as String;
-    final role = (data['role'] ?? 'resident') as String;
-    final phone = (data['phone'] ?? '') as String;
+    final name = (data['name'] ?? 'Unknown').toString();
+    final email = (data['email'] ?? '').toString();
+    final role = (data['role'] ?? 'resident').toString();
+    final phone = (data['phone'] ?? '').toString();
     final ts = data['createdAt'] as Timestamp?;
+    final onShift = data['onShift'] == true;
+    final hasPickupLocation = _hasResidentPickupLocation(data);
 
     Color roleColor;
     IconData roleIcon;
@@ -1409,6 +1536,29 @@ class _AdminHomeState extends State<AdminHome>
                     phone,
                     style: TextStyle(
                       color: Colors.white.withOpacity(0.4),
+                      fontSize: 12,
+                    ),
+                  ),
+                if (role == 'collector')
+                  Text(
+                    onShift
+                        ? 'On shift${(data['shiftAreaCode'] ?? '').toString().isNotEmpty ? ' · Area ${data['shiftAreaCode']}' : ''}'
+                        : 'Off shift',
+                    style: TextStyle(
+                      color: onShift ? const Color(0xFF66BB6A) : Colors.white54,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                if (role == 'resident')
+                  Text(
+                    hasPickupLocation
+                        ? 'Pickup location set'
+                        : 'No pickup location',
+                    style: TextStyle(
+                      color: hasPickupLocation
+                          ? const Color(0xFF66BB6A)
+                          : Colors.white54,
                       fontSize: 12,
                     ),
                   ),

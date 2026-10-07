@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../services/notification_service.dart';
 import '../utils/area_options.dart';
 
 class AdminContentManager extends StatefulWidget {
@@ -298,6 +299,16 @@ class _AdminContentManagerState extends State<AdminContentManager> {
                   data['createdAt'] = FieldValue.serverTimestamp();
                 }
                 await docRef.set(data, SetOptions(merge: true));
+                await NotificationService.sendToArea(
+                  areaCode: selectedArea,
+                  title: isEditing
+                      ? '📅 Schedule Updated — Area $selectedArea'
+                      : '📅 New Collection Schedule — Area $selectedArea',
+                  body: isEditing
+                      ? '$wasteType collection on ${_formatScheduleDate(selectedDate)} at ${selectedTime.format(context)} has been updated.'
+                      : 'A new $wasteType collection has been scheduled for ${_formatScheduleDate(selectedDate)} at ${selectedTime.format(context)} in your area.',
+                  type: 'schedule_update',
+                );
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
               child: Text(isEditing ? 'Save changes' : 'Add schedule'),
