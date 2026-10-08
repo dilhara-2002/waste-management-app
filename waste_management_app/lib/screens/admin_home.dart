@@ -1486,9 +1486,7 @@ class _AdminHomeState extends State<AdminHome>
           'Remove $name from the $role list? Their Firestore profile and '
           'resident access-code claim will be removed, and their submitted '
           'reports and feedback will be anonymized.\n\n'
-          'This does not delete their Firebase Authentication login. They may '
-          'still be able to sign in until their Auth account is removed '
-          'separately.',
+         ,
         ),
         actions: [
           TextButton(
