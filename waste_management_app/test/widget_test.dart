@@ -6,8 +6,17 @@ import 'package:latlong2/latlong.dart';
 import 'package:waste_management_app/firebase_options.dart';
 import 'package:waste_management_app/main.dart';
 import 'package:waste_management_app/screens/resident_home.dart';
+import 'package:waste_management_app/screens/signup_screen.dart';
 
 void main() {
+  test('resident access codes normalize only the supported range', () {
+    expect(SignUpScreen.normalizeResidentAccessCode('R/001'), 'R001');
+    expect(SignUpScreen.normalizeResidentAccessCode('r/100'), 'R100');
+    expect(SignUpScreen.normalizeResidentAccessCode('R/000'), isNull);
+    expect(SignUpScreen.normalizeResidentAccessCode('R/101'), isNull);
+    expect(SignUpScreen.normalizeResidentAccessCode('R//001'), isNull);
+  });
+
   testWidgets('app launches', (WidgetTester tester) async {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     await tester.pumpWidget(const MyApp());

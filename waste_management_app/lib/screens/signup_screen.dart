@@ -1,10 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
 import '../utils/area_options.dart';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
+
+  static String? normalizeResidentAccessCode(String value) {
+    final normalized = value.trim().toUpperCase().replaceFirst('/', '');
+    return RegExp(r'^R(00[1-9]|0[1-9][0-9]|100)$').hasMatch(normalized)
+        ? normalized
+        : null;
+  }
 
   @override
   State<SignUpScreen> createState() => _SignUpScreenState();
@@ -17,6 +25,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _confirmPasswordController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _accessCodeController = TextEditingController();
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
   bool _isLoading = false;
@@ -44,43 +53,56 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _confirmPasswordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _accessCodeController.dispose();
     super.dispose();
   }
 
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
+    final accessCode = _role == 'resident'
+        ? SignUpScreen.normalizeResidentAccessCode(_accessCodeController.text)
+        : null;
     setState(() => _isLoading = true);
+    User? newUser;
 
     try {
       final credential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
+      newUser = credential.user;
 
-      if (credential.user != null) {
-        // Create user document in Firestore with retry
-        final userDocRef = _firestore.collection('users').doc(credential.user!.uid);
-        Exception? lastError;
-        for (int attempt = 1; attempt <= 3; attempt++) {
-          try {
-            await userDocRef.set({
-              'uid': credential.user!.uid,
-              'email': _emailController.text.trim(),
-              'role': _role,
-              'name': _nameController.text.trim(),
-              'phone': _phoneController.text.trim(),
-              'areaCode': _role == 'resident' ? _selectedAreaCode : '',
-              'createdAt': FieldValue.serverTimestamp(),
+      if (newUser != null) {
+        final userDocRef = _firestore.collection('users').doc(newUser.uid);
+        final accessCodeRef = accessCode == null
+            ? null
+            : _firestore.collection('resident_access_codes').doc(accessCode);
+
+        await _firestore.runTransaction((transaction) async {
+          if (accessCodeRef != null) {
+            final accessCodeSnapshot = await transaction.get(accessCodeRef);
+            if (accessCodeSnapshot.exists) {
+              throw _ResidentAccessCodeAlreadyUsedException();
+            }
+            transaction.set(accessCodeRef, {
+              'uid': newUser!.uid,
+              'code': accessCode,
+              'claimedAt': FieldValue.serverTimestamp(),
             });
-            lastError = null;
-            break;
-          } catch (e) {
-            lastError = Exception(e.toString());
-            if (attempt < 3) await Future.delayed(const Duration(milliseconds: 800));
           }
-        }
-        if (lastError != null) throw lastError;
+
+          transaction.set(userDocRef, {
+            'uid': credential.user!.uid,
+            'email': _emailController.text.trim(),
+            'role': _role,
+            'name': _nameController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'areaCode': _role == 'resident' ? _selectedAreaCode : '',
+            if (accessCode != null) 'accessCode': accessCode,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
+        });
 
         if (mounted) {
           _showSnackBar('Account created successfully! Redirecting...');
@@ -88,9 +110,17 @@ class _SignUpScreenState extends State<SignUpScreen> {
           Navigator.pushReplacementNamed(context, targetRoute);
         }
       }
+    } on _ResidentAccessCodeAlreadyUsedException {
+      final cleanupError = await _deleteUnfinishedUser(newUser);
+      _showSnackBar(
+        cleanupError == null
+            ? 'This resident access code has already been used.'
+            : 'This resident access code has already been used. $cleanupError',
+        isError: true,
+      );
     } on FirebaseAuthException catch (e) {
       String message = 'Sign up failed';
-      
+
       switch (e.code) {
         case 'email-already-in-use':
           message = 'An account already exists with this email';
@@ -108,10 +138,36 @@ class _SignUpScreenState extends State<SignUpScreen> {
           message = 'Sign up failed: ${e.message}';
       }
       _showSnackBar(message, isError: true);
+    } on FirebaseException catch (e) {
+      final cleanupError = await _deleteUnfinishedUser(newUser);
+      final message = e.code == 'permission-denied'
+          ? 'Signup was blocked by Firestore security rules. Publish the current Firestore rules and try again.'
+          : 'Could not save signup data (${e.code}): ${e.message ?? 'Unknown Firebase error'}';
+      _showSnackBar(
+        cleanupError == null ? message : '$message $cleanupError',
+        isError: true,
+      );
     } catch (e) {
-      _showSnackBar('An error occurred: $e', isError: true);
+      final cleanupError = await _deleteUnfinishedUser(newUser);
+      final message = 'An error occurred: $e';
+      _showSnackBar(
+        cleanupError == null ? message : '$message $cleanupError',
+        isError: true,
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<String?> _deleteUnfinishedUser(User? user) async {
+    if (user == null) return null;
+    try {
+      await user.delete();
+      return null;
+    } on FirebaseAuthException catch (e) {
+      return 'The incomplete account could not be removed (${e.code}).';
+    } catch (e) {
+      return 'The incomplete account could not be removed: $e';
     }
   }
 
@@ -319,6 +375,30 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                   if (_role == 'resident') ...[
                     const SizedBox(height: 16),
+                    TextFormField(
+                      controller: _accessCodeController,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: InputDecoration(
+                        labelText: 'Resident access code',
+                        prefixIcon: const Icon(Icons.key_outlined),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        filled: true,
+                        fillColor: Colors.grey[50],
+                      ),
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Please enter your resident access code';
+                        }
+                        if (SignUpScreen.normalizeResidentAccessCode(value) ==
+                            null) {
+                          return 'Invalid resident access code';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: _selectedAreaCode,
                       decoration: InputDecoration(
@@ -331,10 +411,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         fillColor: Colors.grey[50],
                       ),
                       items: kAreaCodes
-                          .map((area) => DropdownMenuItem<String>(
-                                value: area,
-                                child: Text(area),
-                              ))
+                          .map(
+                            (area) => DropdownMenuItem<String>(
+                              value: area,
+                              child: Text(area),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value == null) return;
@@ -385,9 +467,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     children: [
                       Text(
                         'Already have an account?',
-                        style: TextStyle(
-                          color: Colors.grey[600],
-                        ),
+                        style: TextStyle(color: Colors.grey[600]),
                       ),
                       TextButton(
                         onPressed: () {
@@ -395,9 +475,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                         },
                         child: const Text(
                           'Sign In',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     ],
@@ -411,3 +489,5 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 }
+
+class _ResidentAccessCodeAlreadyUsedException implements Exception {}
