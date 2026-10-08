@@ -1354,39 +1354,38 @@ class _AdminHomeState extends State<AdminHome>
                     .length;
                 return Container(
                   margin: const EdgeInsets.only(top: 8, bottom: 8),
-                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF151F31),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: const Color(0xFF2E3D5E)),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              'Area $area',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            '${areaResidents.length} residents · $locatedCount locations set',
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.55),
-                              fontSize: 12,
-                            ),
-                          ),
-                        ],
+                  child: Theme(
+                    data: Theme.of(context).copyWith(
+                      dividerColor: Colors.transparent,
+                      splashColor: Colors.white.withOpacity(0.04),
+                    ),
+                    child: ExpansionTile(
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 14),
+                      childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                      title: Text(
+                        'Area $area',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                      const SizedBox(height: 10),
-                      ...areaResidents.map(_userCard),
-                    ],
+                      subtitle: Text(
+                        '${areaResidents.length} residents · $locatedCount locations set',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.55),
+                          fontSize: 12,
+                        ),
+                      ),
+                      iconColor: Colors.white70,
+                      collapsedIconColor: Colors.white70,
+                      children: areaResidents.map(_userCard).toList(),
+                    ),
                   ),
                 );
               }),
@@ -1466,6 +1465,101 @@ class _AdminHomeState extends State<AdminHome>
 
   bool _hasResidentPickupLocation(Map<String, dynamic> user) =>
       user['latitude'] is num && user['longitude'] is num;
+
+  Future<void> _removeUserProfile(Map<String, dynamic> data) async {
+    final userId = (data['id'] ?? data['uid'] ?? '').toString();
+    final role = (data['role'] ?? 'resident').toString();
+    final name = (data['name'] ?? data['email'] ?? 'this user').toString();
+    final currentUserId = _auth.currentUser?.uid;
+
+    if (userId.isEmpty ||
+        (role != 'resident' && role != 'collector') ||
+        userId == currentUserId) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove user profile?'),
+        content: Text(
+          'Remove $name from the $role list? Their Firestore profile and '
+          'resident access-code claim will be removed, and their submitted '
+          'reports and feedback will be anonymized.\n\n'
+          'This does not delete their Firebase Authentication login. They may '
+          'still be able to sign in until their Auth account is removed '
+          'separately.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Remove profile'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      for (final collectionName in ['reports', 'feedback']) {
+        final records = await _firestore
+            .collection(collectionName)
+            .where('userId', isEqualTo: userId)
+            .get();
+        for (var i = 0; i < records.docs.length; i += 400) {
+          final batch = _firestore.batch();
+          final chunk = records.docs.skip(i).take(400);
+          for (final record in chunk) {
+            batch.update(record.reference, {
+              'userId': '',
+              'userName': 'Deleted user',
+              'userEmail': '',
+            });
+          }
+          await batch.commit();
+        }
+      }
+
+      final profileRef = _firestore.collection('users').doc(userId);
+      final batch = _firestore.batch();
+      batch.delete(profileRef);
+
+      if (role == 'resident') {
+        final accessCode = (data['accessCode'] ?? '')
+            .toString()
+            .trim()
+            .toUpperCase()
+            .replaceFirst('/', '');
+        if (RegExp(r'^R(00[1-9]|0[1-9][0-9]|100)$').hasMatch(accessCode)) {
+          final accessCodeRef = _firestore
+              .collection('resident_access_codes')
+              .doc(accessCode);
+          final accessCodeDoc = await accessCodeRef.get();
+          if (accessCodeDoc.data()?['uid'] == userId) {
+            batch.delete(accessCodeRef);
+          }
+        }
+      }
+
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$name removed from the system profiles.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not remove $name: $error')),
+        );
+      }
+    }
+  }
 
   Widget _userCard(Map<String, dynamic> data) {
     final name = (data['name'] ?? 'Unknown').toString();
@@ -1589,6 +1683,12 @@ class _AdminHomeState extends State<AdminHome>
               ),
             ),
           ),
+          if (role == 'resident' || role == 'collector')
+            IconButton(
+              tooltip: 'Remove profile',
+              onPressed: () => _removeUserProfile(data),
+              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+            ),
         ],
       ),
     );
