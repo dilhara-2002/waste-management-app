@@ -34,14 +34,12 @@ class _CollectorHomeState extends State<CollectorHome> {
   String? _draftImageBase64;
   String? _draftImageName;
   bool _isPickingImage = false;
-  bool _isSeedingSchedules = false;
   String? _currentAreaCode; // Area code selected when starting the shift
   Map<String, dynamic>? _collectorProfile;
 
   @override
   void initState() {
     super.initState();
-    _seedDefaultSchedulesIfEmpty();
     _loadCollectorProfile();
   }
 
@@ -364,63 +362,6 @@ class _CollectorHomeState extends State<CollectorHome> {
         );
       },
     );
-  }
-
-  Future<void> _seedDefaultSchedulesIfEmpty() async {
-    if (_isSeedingSchedules) return;
-    _isSeedingSchedules = true;
-    try {
-      final snapshot = await _firestore.collection('schedules').limit(1).get();
-      if (snapshot.docs.isNotEmpty) return;
-
-      final now = DateTime.now();
-      final defaults = [
-        {
-          'wasteType': 'Recyclables',
-          'areaCode': 'A01',
-          'date': _formatDate(now.add(const Duration(days: 1))),
-        },
-        {
-          'wasteType': 'Organic waste',
-          'areaCode': 'A02',
-          'date': _formatDate(now.add(const Duration(days: 3))),
-        },
-        {
-          'wasteType': 'General waste',
-          'areaCode': 'A03',
-          'date': _formatDate(now.add(const Duration(days: 5))),
-        },
-      ];
-
-      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'collector_seed';
-      final batch = _firestore.batch();
-      for (final entry in defaults) {
-        final parsedDate = DateTime.parse(entry['date']!.toString());
-        final docRef = _firestore.collection('schedules').doc();
-        batch.set(docRef, {
-          'date': entry['date'],
-          'dayOfWeek': _dayNameFromDate(parsedDate),
-          'time': '09:00 AM',
-          'wasteType': entry['wasteType'],
-          'areaCode': entry['areaCode'],
-          'areaName': entry['areaCode'],
-          'status': 'upcoming',
-          'createdBy': userId,
-          'updatedBy': userId,
-          'published': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
-      if (mounted) {
-        setState(() {});
-      }
-    } catch (_) {
-      // Keep screen usable even if initial seed fails.
-    } finally {
-      _isSeedingSchedules = false;
-    }
   }
 
   String _dayNameFromDate(DateTime date) {
@@ -1524,8 +1465,8 @@ class _CollectorHomeState extends State<CollectorHome> {
             label: 'Home',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.edit_outlined),
-            label: 'Edit',
+            icon: Icon(Icons.calendar_month_outlined),
+            label: 'Schedules',
           ),
         ],
       ),
@@ -1534,16 +1475,7 @@ class _CollectorHomeState extends State<CollectorHome> {
 
   Widget _buildSelectedTab() {
     if (_selectedTabIndex == 1) {
-      return SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(
-          children: [
-            _buildScheduleManagementCard(),
-            const SizedBox(height: 14),
-            _buildCommunityPostsCard(),
-          ],
-        ),
-      );
+      return _buildSchedulesTab();
     }
 
     return Column(
@@ -1684,6 +1616,81 @@ class _CollectorHomeState extends State<CollectorHome> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildSchedulesTab() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: _firestore.collection('schedules').snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return const Center(
+            child: Text('Unable to load collection schedules.'),
+          );
+        }
+
+        final schedules =
+            snapshot.data?.docs
+                .map((doc) => doc.data() as Map<String, dynamic>)
+                .toList() ??
+            <Map<String, dynamic>>[];
+        schedules.sort((a, b) {
+          final aDate = (a['date'] ?? '').toString();
+          final bDate = (b['date'] ?? '').toString();
+          return aDate.compareTo(bDate);
+        });
+
+        if (schedules.isEmpty) {
+          return const Center(
+            child: Text('No collection schedules available.'),
+          );
+        }
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Collection schedules',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+            ...schedules.map((schedule) {
+              final date = (schedule['date'] ?? '').toString();
+              final day = (schedule['dayOfWeek'] ?? '').toString();
+              final time = (schedule['time'] ?? '').toString();
+              final area = (schedule['areaCode'] ?? schedule['areaName'] ?? '')
+                  .toString();
+              final details = [
+                if (day.isNotEmpty) day,
+                if (date.isNotEmpty) date,
+                if (time.isNotEmpty) time,
+                if (area.isNotEmpty) area,
+              ].join(' • ');
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.calendar_today_outlined,
+                    color: Colors.green,
+                  ),
+                  title: Text(
+                    (schedule['wasteType'] ?? 'Collection').toString(),
+                  ),
+                  subtitle: Text(
+                    details.isEmpty ? 'Details not provided' : details,
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
     );
   }
 
