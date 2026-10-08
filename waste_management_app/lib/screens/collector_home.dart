@@ -1499,6 +1499,7 @@ class _CollectorHomeState extends State<CollectorHome> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Collector Portal'),
+        automaticallyImplyLeading: false,
         actions: [
           IconButton(
             icon: const Icon(Icons.person_outline),
