@@ -1168,11 +1168,26 @@ class _CollectorHomeState extends State<CollectorHome> {
 
       // Send in-app notification to residents in the selected area
       if (_currentAreaCode != null && _currentAreaCode!.isNotEmpty) {
+        await _loadCollectorProfile();
+        final collectorName =
+            (_collectorProfile?['name'] ??
+                    FirebaseAuth.instance.currentUser?.displayName ??
+                    '')
+                .toString()
+                .trim();
+        final collectorPhone =
+            (_collectorProfile?['phone'] ??
+                    FirebaseAuth.instance.currentUser?.phoneNumber ??
+                    '')
+                .toString()
+                .trim();
         await NotificationService.sendToArea(
           areaCode: _currentAreaCode!,
           title: '🚛 Truck Started Shift — Area $_currentAreaCode',
           body:
-              'The waste collection truck has started its shift in your area. Please have your bins ready.',
+              'Collector: ${collectorName.isEmpty ? 'Not provided' : collectorName} · '
+              'Phone: ${collectorPhone.isEmpty ? 'Not provided' : collectorPhone}. '
+              'The truck has started its shift in your area. Please have your bins ready.',
           type: 'shift_start',
         );
       }
@@ -1298,6 +1313,8 @@ class _CollectorHomeState extends State<CollectorHome> {
     final lat = resident['latitude'] as double?;
     final lon = resident['longitude'] as double?;
     final email = resident['email'] as String? ?? 'No email';
+    final name = (resident['name'] ?? '').toString().trim();
+    final phone = (resident['phone'] ?? '').toString().trim();
 
     if (lat == null || lon == null || _currentPosition == null) return;
 
@@ -1336,7 +1353,11 @@ class _CollectorHomeState extends State<CollectorHome> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Resident: $email'),
+            Text('Name: ${name.isEmpty ? 'Not provided' : name}'),
+            const SizedBox(height: 4),
+            Text('Phone: ${phone.isEmpty ? 'Not provided' : phone}'),
+            const SizedBox(height: 4),
+            Text('Email: $email'),
             const SizedBox(height: 8),
             if (route != null) ...[
               Row(
