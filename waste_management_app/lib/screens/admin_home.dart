@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'dart:convert';
+import '../services/signup_access_code_service.dart';
 import '../widgets/admin_content_manager.dart';
 
 class AdminHome extends StatefulWidget {
@@ -1267,6 +1268,194 @@ class _AdminHomeState extends State<AdminHome>
 
   // ─────────────────────────────────── USERS TAB ───────────────────────────────
 
+  Future<void> _showAccessCodeUpdateDialog(SignupAccessCodeType type) async {
+    final existingCodeController = TextEditingController();
+    final newCodeController = TextEditingController();
+    final confirmCodeController = TextEditingController();
+    var isVerified = false;
+    var isVerifying = false;
+    var isSaving = false;
+    String? errorMessage;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            backgroundColor: const Color(0xFF1A2438),
+            title: Text(
+              'Update ${type.label} signup code',
+              style: const TextStyle(color: Colors.white),
+            ),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!isVerified) ...[
+                    const Text(
+                      'Enter the current access code to continue.',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: existingCodeController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Existing access code',
+                        prefixIcon: Icon(Icons.key_outlined),
+                      ),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ] else ...[
+                    TextField(
+                      controller: newCodeController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'New access code',
+                        prefixIcon: Icon(Icons.key_outlined),
+                      ),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: confirmCodeController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Confirm new access code',
+                        prefixIcon: Icon(Icons.key_outlined),
+                      ),
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ],
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      errorMessage!,
+                      style: const TextStyle(color: Colors.redAccent),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: isSaving || isVerifying
+                    ? null
+                    : () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: isSaving || isVerifying
+                    ? null
+                    : () async {
+                        if (!isVerified) {
+                          setDialogState(() {
+                            isVerifying = true;
+                            errorMessage = null;
+                          });
+                          try {
+                            final currentCode =
+                                await SignupAccessCodeService.getCode(
+                                  _firestore,
+                                  type,
+                                );
+                            if (!type.matches(
+                              existingCodeController.text,
+                              currentCode,
+                            )) {
+                              setDialogState(() {
+                                errorMessage = 'Incorrect existing access code.';
+                                isVerifying = false;
+                              });
+                              return;
+                            }
+                            setDialogState(() {
+                              isVerified = true;
+                              isVerifying = false;
+                            });
+                          } catch (error) {
+                            setDialogState(() {
+                              errorMessage =
+                                  'Could not verify the existing code: $error';
+                              isVerifying = false;
+                            });
+                          }
+                          return;
+                        }
+
+                        final newCode = newCodeController.text.trim();
+                        if (newCode.isEmpty) {
+                          setDialogState(
+                            () => errorMessage = 'Enter a new access code.',
+                          );
+                          return;
+                        }
+                        if (newCode != confirmCodeController.text.trim()) {
+                          setDialogState(
+                            () => errorMessage = 'The new codes do not match.',
+                          );
+                          return;
+                        }
+
+                        setDialogState(() {
+                          isSaving = true;
+                          errorMessage = null;
+                        });
+                        try {
+                          await SignupAccessCodeService.updateCode(
+                            firestore: _firestore,
+                            type: type,
+                            existingCode: existingCodeController.text,
+                            newCode: newCode,
+                          );
+                          if (dialogContext.mounted) {
+                            Navigator.pop(dialogContext);
+                          }
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '${type.label} signup access code updated.',
+                                ),
+                              ),
+                            );
+                          }
+                        } on SignupAccessCodeChangedException {
+                          setDialogState(() {
+                            isVerified = false;
+                            isSaving = false;
+                            errorMessage =
+                                'The existing code changed. Verify the current code again.';
+                          });
+                        } catch (error) {
+                          setDialogState(() {
+                            isSaving = false;
+                            errorMessage =
+                                'Could not update the access code: $error';
+                          });
+                        }
+                      },
+                child: isVerifying || isSaving
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isVerified ? 'Save code' : 'Verify code'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      existingCodeController.dispose();
+      newCodeController.dispose();
+      confirmCodeController.dispose();
+    }
+  }
+
   Widget _buildUsersTab() {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _firestore.collection('users').snapshots(),
@@ -1311,6 +1500,48 @@ class _AdminHomeState extends State<AdminHome>
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1A2438),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0xFF2E3D5E)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Signup access codes',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Verify the current code before changing it. New signups will use the updated code.',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.6),
+                      fontSize: 12,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: SignupAccessCodeType.values.map((type) {
+                      return OutlinedButton.icon(
+                        onPressed: () => _showAccessCodeUpdateDialog(type),
+                        icon: const Icon(Icons.key_outlined),
+                        label: Text('Update ${type.label} code'),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
             Wrap(
               spacing: 8,
               runSpacing: 8,

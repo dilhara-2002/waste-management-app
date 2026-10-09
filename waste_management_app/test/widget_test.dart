@@ -7,14 +7,31 @@ import 'package:waste_management_app/firebase_options.dart';
 import 'package:waste_management_app/main.dart';
 import 'package:waste_management_app/screens/resident_home.dart';
 import 'package:waste_management_app/screens/signup_screen.dart';
+import 'package:waste_management_app/services/signup_access_code_service.dart';
 
 void main() {
-  test('collector access code is shared and matched after trimming', () {
-    expect(SignUpScreen.isValidCollectorAccessCode('collector_2026'), isTrue);
-    expect(SignUpScreen.isValidCollectorAccessCode(' collector_2026 '), isTrue);
-    expect(SignUpScreen.isValidCollectorAccessCode('COLLECTOR_2026'), isTrue);
+  test('signup code defaults and matching preserve existing behavior', () {
+    expect(SignupAccessCodeType.collector.defaultCode, 'collector_2026');
+    expect(SignupAccessCodeType.admin.defaultCode, 'WASTE_ADMIN_2024');
     expect(
-      SignUpScreen.isValidCollectorAccessCode('WASTE_ADMIN_2024'),
+      SignupAccessCodeType.collector.matches(
+        ' COLLECTOR_2026 ',
+        'collector_2026',
+      ),
+      isTrue,
+    );
+    expect(
+      SignupAccessCodeType.admin.matches(
+        'WASTE_ADMIN_2024',
+        'WASTE_ADMIN_2024',
+      ),
+      isTrue,
+    );
+    expect(
+      SignupAccessCodeType.admin.matches(
+        'waste_admin_2024',
+        'WASTE_ADMIN_2024',
+      ),
       isFalse,
     );
   });

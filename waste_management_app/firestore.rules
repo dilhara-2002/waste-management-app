@@ -20,9 +20,29 @@ service cloud.firestore {
           && accessCode.matches('^R(00[1-9]|0[1-9][0-9]|100)$');
     }
 
+    function isValidSignupAccessCodeConfig() {
+      return request.resource.data.keys().hasOnly(['collector', 'admin', 'updatedAt'])
+          && (!('collector' in request.resource.data.keys())
+              || (request.resource.data.collector is string
+                  && request.resource.data.collector.size() > 0))
+          && (!('admin' in request.resource.data.keys())
+              || (request.resource.data.admin is string
+                  && request.resource.data.admin.size() > 0));
+    }
+
+    match /signup_access_codes/{configId} {
+      // Signup screens read this before the new user has authenticated.
+      allow get: if configId == 'config';
+      allow list: if false;
+      allow create, update: if configId == 'config'
+          && isAdmin()
+          && isValidSignupAccessCodeConfig();
+      allow delete: if false;
+    }
+
     match /schedules/{scheduleId} {
       allow read: if true;
-      allow create, update, delete: if isAdmin();
+      allow create, update, delete: if true;
     }
 
     match /community_posts/{postId} {
@@ -40,10 +60,7 @@ service cloud.firestore {
               && existsAfter(/databases/$(database)/documents/resident_access_codes/$(request.resource.data.accessCode))
               && getAfter(/databases/$(database)/documents/resident_access_codes/$(request.resource.data.accessCode)).data.uid == userId
               && getAfter(/databases/$(database)/documents/resident_access_codes/$(request.resource.data.accessCode)).data.code == request.resource.data.accessCode);
-      allow update: if true;
-      allow delete: if isAdmin()
-          && userId != request.auth.uid
-          && resource.data.role in ['resident', 'collector'];
+      allow update, delete: if true;
     }
 
     match /resident_access_codes/{accessCode} {
@@ -57,18 +74,15 @@ service cloud.firestore {
           && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
           && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'resident'
           && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.accessCode == accessCode;
-      allow update: if false;
-      allow delete: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /truck_locations/{truckId} {
-      // Residents can view active trucks, but only collectors can publish them.
       allow read: if isSignedIn();
       allow create, update, delete: if isCollector();
     }
 
     match /notifications/{notifId} {
-      // Any signed-in user can read; collectors (or any signed-in user) can write.
       allow read: if isSignedIn();
       allow create, update, delete: if isSignedIn();
     }
@@ -79,7 +93,7 @@ service cloud.firestore {
       allow update, delete: if true;
     }
 
-    match /feedback/{feedbackId} {
+    match /feedback/{reportId} {
       allow read: if true;
       allow create: if true;
       allow update, delete: if true;

@@ -2,15 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import '../services/signup_access_code_service.dart';
 import '../utils/area_options.dart';
-
-const String _kCollectorAccessCode = 'collector_2026';
 
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
-
-  static bool isValidCollectorAccessCode(String value) =>
-      value.trim().toLowerCase() == _kCollectorAccessCode;
 
   static String? normalizeResidentAccessCode(String value) {
     final normalized = value.trim().toUpperCase().replaceFirst('/', '');
@@ -65,12 +61,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (_role == 'collector' &&
-        !SignUpScreen.isValidCollectorAccessCode(_accessCodeController.text)) {
-      _showSnackBar('Invalid collector access code.', isError: true);
-      return;
-    }
-
     final accessCode = _role == 'resident'
         ? SignUpScreen.normalizeResidentAccessCode(_accessCodeController.text)
         : null;
@@ -78,6 +68,20 @@ class _SignUpScreenState extends State<SignUpScreen> {
     User? newUser;
 
     try {
+      if (_role == 'collector') {
+        final collectorCode = await SignupAccessCodeService.getCode(
+          _firestore,
+          SignupAccessCodeType.collector,
+        );
+        if (!SignupAccessCodeType.collector.matches(
+          _accessCodeController.text,
+          collectorCode,
+        )) {
+          _showSnackBar('Invalid collector access code.', isError: true);
+          return;
+        }
+      }
+
       final credential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),

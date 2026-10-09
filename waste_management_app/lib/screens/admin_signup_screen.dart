@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
-/// Secret code that must be entered to register as an admin.
-/// Change this to a more secure value in production.
-const String _kAdminCode = 'WASTE_ADMIN_2024';
+import '../services/signup_access_code_service.dart';
 
 class AdminSignUpScreen extends StatefulWidget {
   const AdminSignUpScreen({super.key});
@@ -63,15 +60,21 @@ class _AdminSignUpScreenState extends State<AdminSignUpScreen>
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
 
-    // Verify admin code
-    if (_adminCodeController.text.trim() != _kAdminCode) {
-      _showSnackBar('Invalid admin access code.', isError: true);
-      return;
-    }
-
     setState(() => _isLoading = true);
 
     try {
+      final adminCode = await SignupAccessCodeService.getCode(
+        _firestore,
+        SignupAccessCodeType.admin,
+      );
+      if (!SignupAccessCodeType.admin.matches(
+        _adminCodeController.text,
+        adminCode,
+      )) {
+        _showSnackBar('Invalid admin access code.', isError: true);
+        return;
+      }
+
       final credential = await _auth.createUserWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
