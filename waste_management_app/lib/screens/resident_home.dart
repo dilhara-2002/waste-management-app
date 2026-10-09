@@ -1262,7 +1262,7 @@ class _ResidentHomeState extends State<ResidentHome> {
                   Icons.report_gmailerrorred,
                   'Report Missed Pickup',
                   () {
-                    Navigator.pushNamed(context, '/login');
+                    setState(() => _currentIndex = 3);
                   },
                 ),
                 _quickAction(Icons.menu_book, 'Segregation Guide', () {
