@@ -4,8 +4,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import '../utils/area_options.dart';
 
+const String _kCollectorAccessCode = 'collector_2026';
+
 class SignUpScreen extends StatefulWidget {
   const SignUpScreen({super.key});
+
+  static bool isValidCollectorAccessCode(String value) =>
+      value.trim().toLowerCase() == _kCollectorAccessCode;
 
   static String? normalizeResidentAccessCode(String value) {
     final normalized = value.trim().toUpperCase().replaceFirst('/', '');
@@ -59,6 +64,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   Future<void> _signUp() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_role == 'collector' &&
+        !SignUpScreen.isValidCollectorAccessCode(_accessCodeController.text)) {
+      _showSnackBar('Invalid collector access code.', isError: true);
+      return;
+    }
 
     final accessCode = _role == 'resident'
         ? SignUpScreen.normalizeResidentAccessCode(_accessCodeController.text)
@@ -373,13 +384,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       return null;
                     },
                   ),
-                  if (_role == 'resident') ...[
+                  if (_role == 'resident' || _role == 'collector') ...[
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _accessCodeController,
                       textCapitalization: TextCapitalization.characters,
                       decoration: InputDecoration(
-                        labelText: 'Resident access code',
+                        labelText:
+                            '${_role == 'resident' ? 'Resident' : 'Collector'} access code',
                         prefixIcon: const Icon(Icons.key_outlined),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -389,15 +401,18 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return 'Please enter your resident access code';
+                          return 'Please enter your ${_role == 'resident' ? 'resident' : 'collector'} access code';
                         }
-                        if (SignUpScreen.normalizeResidentAccessCode(value) ==
-                            null) {
+                        if (_role == 'resident' &&
+                            SignUpScreen.normalizeResidentAccessCode(value) ==
+                                null) {
                           return 'Invalid resident access code';
                         }
                         return null;
                       },
                     ),
+                  ],
+                  if (_role == 'resident') ...[
                     const SizedBox(height: 16),
                     DropdownButtonFormField<String>(
                       value: _selectedAreaCode,
