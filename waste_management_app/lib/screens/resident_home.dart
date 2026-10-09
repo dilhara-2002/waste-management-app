@@ -1431,11 +1431,26 @@ class _ResidentHomeState extends State<ResidentHome> {
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
-                  _tipCard('1', 'Plastic', Colors.blue),
+                  _tipCard(
+                    '1',
+                    'Plastic',
+                    'Rinse bottles and containers before recycling.',
+                    Colors.blue,
+                  ),
                   const SizedBox(width: 12),
-                  _tipCard('2', 'Paper', Colors.orange),
+                  _tipCard(
+                    '2',
+                    'Paper',
+                    'Keep paper dry and free of food or grease.',
+                    Colors.orange,
+                  ),
                   const SizedBox(width: 12),
-                  _tipCard('3', 'Glass', Colors.green),
+                  _tipCard(
+                    '3',
+                    'Glass',
+                    'Empty jars and wrap broken glass safely.',
+                    Colors.green,
+                  ),
                 ],
               ),
             ),
@@ -1556,7 +1571,12 @@ class _ResidentHomeState extends State<ResidentHome> {
     );
   }
 
-  Widget _tipCard(String number, String title, Color color) {
+  Widget _tipCard(
+    String number,
+    String title,
+    String description,
+    Color color,
+  ) {
     return Container(
       width: 160,
       decoration: BoxDecoration(
@@ -1582,12 +1602,7 @@ class _ResidentHomeState extends State<ResidentHome> {
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 6),
-            const Text(
-              'Short tip description goes here',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.grey),
-            ),
+            Text(description, style: const TextStyle(color: Colors.black)),
           ],
         ),
       ),
